@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/packages/onlyoffice/:version/web-apps/apps/:app/main/index.html",
+      "destination": "https://ca0eac5f.onlyoffice-packages.pages.dev/onlyoffice/:version/web-apps/apps/:app/main/"
+    },
+    {
+      "source": "/packages/:path*",
+      "destination": "https://ca0eac5f.onlyoffice-packages.pages.dev/:path*"
+    }
+  ]
+}

@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
 import { DemoButton, DemoMenuRow } from "./demo-toolbar";
+import type { MultiInstanceManager } from "./subframe-manager";
 
 type DocxCommentsCrudProps = {
   disabled?: boolean;
   getManager: () =>
-    OnlyOfficeManager | Promise<OnlyOfficeManager | null> | null;
+    MultiInstanceManager | Promise<MultiInstanceManager | null> | null;
   onError?: (message: string, err: unknown) => void;
 };
 
@@ -28,7 +28,7 @@ export function DocxCommentsCrud({
   const [status, setStatus] = useState("0 条");
 
   const runCommentAction = async (
-    action: (manager: OnlyOfficeManager) => void | Promise<void>,
+    action: (manager: MultiInstanceManager) => void | Promise<void>,
     errorMessage: string,
   ) => {
     try {
@@ -43,7 +43,7 @@ export function DocxCommentsCrud({
     }
   };
 
-  const refreshCount = async (manager: OnlyOfficeManager) => {
+  const refreshCount = async (manager: MultiInstanceManager) => {
     const comments = await manager.getEditor().getAllComments();
     setStatus(`${comments.length} 条`);
     return comments;

@@ -1,6 +1,20 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["**.localhost"],
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Origin-Agent-Cluster",
+            value: "?1",
+          },
+        ],
+      },
+    ];
+  },
   webpack: (config, { isServer }) => {
 
 
