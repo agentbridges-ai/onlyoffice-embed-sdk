@@ -143,10 +143,10 @@ npx wrangler pages deploy public/packages \
   --commit-dirty=true
 ```
 
-部署后资源地址应该类似：
+部署后使用固定的生产 Pages 域名：
 
 ```text
-https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
+https://onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
 ```
 
 在运行时把 Pages origin 注册为静态资源根地址：
@@ -155,7 +155,7 @@ https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-dev
 import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
 
 OnlyOfficeManager.registerStaticResource({
-  cdnOrigin: "https://<deployment-id>.onlyoffice-embed-resource.pages.dev",
+  cdnOrigin: "https://onlyoffice-embed-resource.pages.dev",
 });
 ```
 

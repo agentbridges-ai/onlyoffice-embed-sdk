@@ -143,10 +143,10 @@ npx wrangler pages deploy public/packages \
   --commit-dirty=true
 ```
 
-After deployment, the asset URL should look like:
+After deployment, use the fixed production Pages domain:
 
 ```text
-https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
+https://onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
 ```
 
 Use that Pages origin as the runtime resource root:
@@ -155,7 +155,7 @@ Use that Pages origin as the runtime resource root:
 import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
 
 OnlyOfficeManager.registerStaticResource({
-  cdnOrigin: "https://<deployment-id>.onlyoffice-embed-resource.pages.dev",
+  cdnOrigin: "https://onlyoffice-embed-resource.pages.dev",
 });
 ```
 

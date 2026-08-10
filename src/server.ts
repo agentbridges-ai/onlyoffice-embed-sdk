@@ -1,7 +1,7 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 const STATIC_RESOURCE_ORIGIN =
-  "https://d69d942c.onlyoffice-embed-resource.pages.dev";
+  "https://onlyoffice-embed-resource.pages.dev";
 
 async function fetchStaticResource(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
