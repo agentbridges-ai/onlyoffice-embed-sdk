@@ -2,7 +2,7 @@
 
 > 📖 English | [中文](README.zh.md)
 
-🌐 **Live Demo**: https://onlyoffice-web-comp.vercel.app/
+🌐 **Live Demo**: https://onlyoffice.agent-bridges.com/
 
 A browser-based document solution built on the OnlyOffice static SDK. View, edit, and convert Word, Excel, and PowerPoint entirely on the client—**no Document Server required**.
 
@@ -11,7 +11,7 @@ This repository has two parts:
 | Part | Path | Description |
 |------|------|-------------|
 | **Component library** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | Reusable Web editor wrapper + Markdown docs |
-| **Demo site** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | Next.js landing, docs, and live demos |
+| **Demo site** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start file routes on a Cloudflare Worker |
 
 ## Project Positioning
 
@@ -39,7 +39,7 @@ Static resource resolution is centralized in [`src/components/onlyoffice-web-com
 
 ## Quick Try
 
-1. Visit the [live demo](https://onlyoffice-web-comp.vercel.app/) or run locally:
+1. Visit the [live demo](https://onlyoffice.agent-bridges.com/) or run locally:
 
 ```bash
 git clone <repository-url>
@@ -91,13 +91,14 @@ import { OnlyOfficeManager, FILE_TYPE, ONLYOFFICE_ID } from "@/components/onlyof
 ```
 onlyoffice-web-comp/
 ├── src/
-│   ├── app/                              # Next.js routes
-│   │   ├── page.tsx                      # Landing
-│   │   ├── docs/                         # Documentation site
-│   │   │   ├── page.tsx                  # /docs (overview md)
-│   │   │   ├── [slug]/page.tsx           # /docs/*
+│   ├── app/                              # TanStack Start file routes
+│   │   ├── __root.tsx                    # HTML shell and global metadata
+│   │   ├── index.tsx                     # Landing page
+│   │   ├── docs/                         # Documentation routes
+│   │   │   ├── index.tsx                  # /docs overview
+│   │   │   ├── $slug.tsx                  # /docs/* Markdown pages
 │   │   │   └── demos/                    # /docs/demos/single|multi
-│   │   └── examples/                     # → redirect to single demo
+│   │   └── examples.tsx                  # → redirect to single demo
 │   ├── features/
 │   │   ├── docs/                         # Docs shell, markdown renderer, site-map
 │   │   ├── demo/                         # Live demo components
@@ -115,16 +116,18 @@ Docs pages read Markdown directly from `src/components/onlyoffice-web-comp/docs/
 
 - **OnlyOffice SDK**: Core editing
 - **x2t + WebAssembly**: Format conversion
-- **Next.js 15 + React 19**: Demo application
+- **TanStack Start + React 19**: SSR and file-based routing
+- **Cloudflare Workers**: production runtime, custom domains, and response headers
 
 ## Deployment
 
 ```bash
 pnpm install
 pnpm build
+pnpm run deploy
 ```
 
-Deploy to Vercel or any static host. Live demo: https://onlyoffice-web-comp.vercel.app/
+The application deploys as a TanStack Start SSR Worker through Wrangler. Production routes are configured in `wrangler.jsonc`, including `onlyoffice.agent-bridges.com` and the isolated `*.b.agent-bridges.com` subframe hosts. Vercel is not used.
 
 ### Deploy SDK Assets to Cloudflare Pages CDN
 

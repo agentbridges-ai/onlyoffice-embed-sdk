@@ -12,22 +12,22 @@ type CompDocPageProps = {
   slug: string;
 };
 
-export async function CompDocPage({ slug }: CompDocPageProps) {
+export function CompDocPage({ slug }: CompDocPageProps) {
   const doc = getMarkdownDocBySlug(slug);
   if (!doc) {
     return null;
   }
 
-  const content = await readCompDoc(doc.file);
+  const content = readCompDoc(doc.file);
 
   return <MarkdownContent content={content} />;
 }
 
-export async function getCompDocMetadata(slug: string) {
+export function getCompDocMetadata(slug: string) {
   const doc = getMarkdownDocBySlug(slug);
   if (!doc) return { title: "文档" };
 
-  const content = await readCompDoc(doc.file);
+  const content = readCompDoc(doc.file);
   const title = extractDocTitle(content, doc.label);
 
   return {

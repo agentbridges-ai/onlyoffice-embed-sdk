@@ -1,23 +1,17 @@
-import "server-only";
-
 /**
- * 服务端读取 `onlyoffice-web-comp/docs/` 下的 Markdown 源文件。
+ * 读取 `onlyoffice-web-comp/docs/` 下的 Markdown 源文件。
+ *
+ * Vite bundles these documents as raw assets so the same code works in the
+ * browser, during SSR, and inside a Cloudflare Worker.
  */
-import fs from "fs/promises";
-import path from "path";
 import { getMarkdownDocBySlug } from "../config/site-map";
+import { getCompDocContent } from "./content";
 
-export const COMP_DOCS_DIR = path.join(
-  process.cwd(),
-  "src/components/onlyoffice-web-comp/docs",
-);
-
-export async function readCompDoc(file: string): Promise<string> {
-  const filePath = path.join(COMP_DOCS_DIR, file);
-  return fs.readFile(filePath, "utf-8");
+export function readCompDoc(file: string): string {
+  return getCompDocContent(file);
 }
 
-export async function readMarkdownDocBySlug(slug: string): Promise<string | null> {
+export function readMarkdownDocBySlug(slug: string): string | null {
   const doc = getMarkdownDocBySlug(slug);
   if (!doc) return null;
   return readCompDoc(doc.file);

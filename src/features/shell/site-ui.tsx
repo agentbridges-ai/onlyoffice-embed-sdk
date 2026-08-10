@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 export const SITE_GITHUB =
@@ -70,7 +70,7 @@ export function SiteLinkButton({
   }
 
   return (
-    <Link href={href} className={classes} onClick={onClick}>
+    <Link to={href} className={classes} onClick={onClick}>
       {children}
     </Link>
   );

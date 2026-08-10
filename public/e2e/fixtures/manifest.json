@@ -1,0 +1,37 @@
+[
+  {
+    "name": "edge-invalid-bookmark.docx",
+    "kind": "positive",
+    "fileType": "DOCX",
+    "source": "#29 / PR #30 invalid DingTalk DOCX bookmark",
+    "size": 3591
+  },
+  {
+    "name": "xml-limit.docx",
+    "kind": "negative",
+    "fileType": "DOCX",
+    "source": "#34 configurable Office XML size guard",
+    "size": 44452
+  },
+  {
+    "name": "mismatch-xlsx-as-docx.docx",
+    "kind": "negative",
+    "fileType": "DOCX",
+    "source": "extension/content mismatch rejection",
+    "size": 6524
+  },
+  {
+    "name": "plain-text-as-docx.docx",
+    "kind": "positive",
+    "fileType": "DOCX",
+    "source": "plain text content with DOCX extension fallback",
+    "size": 14
+  },
+  {
+    "name": "plain-text-as-xlsx.xlsx",
+    "kind": "positive",
+    "fileType": "XLSX",
+    "source": "plain text content with XLSX extension fallback",
+    "size": 15
+  }
+]

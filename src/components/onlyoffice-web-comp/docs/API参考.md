@@ -71,7 +71,7 @@ STATIC_RESOURCE.x2t.script            // x2t.js 路径
 STATIC_RESOURCE.x2t.wasm              // x2t.wasm 路径
 ```
 
-可通过环境变量 `NEXT_PUBLIC_APP_ROOT` 覆盖 SDK 根路径。
+SDK 根路径默认是 `/packages/onlyoffice/9.4.0-develop`；如需使用 CDN，请在首次创建编辑器前调用 `OnlyOfficeManager.registerStaticResource({ cdnOrigin })`。
 
 ### `__custom_font_registry__`
 

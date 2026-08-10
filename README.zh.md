@@ -2,7 +2,7 @@
 
 > 📖 [English](README.md) | 中文
 
-🌐 **在线演示**: [https://onlyoffice-web-comp.vercel.app/](https://onlyoffice-web-comp.vercel.app/)
+🌐 **在线演示**: [https://onlyoffice.agent-bridges.com/](https://onlyoffice.agent-bridges.com/)
 
 基于 OnlyOffice 静态 SDK 的浏览器端文档处理方案：在客户端完成 Word / Excel / PowerPoint 的查看、编辑与转换，**无需 Document Server**。
 
@@ -11,7 +11,7 @@
 | 部分 | 路径 | 说明 |
 |------|------|------|
 | **组件库** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | 可复用的 Web 端编辑器封装 + Markdown 文档源 |
-| **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | Next.js 主页、文档站、在线示例 |
+| **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start 文件路由 + Cloudflare Worker |
 
 ## 项目定位
 
@@ -39,7 +39,7 @@
 
 ## 快速体验
 
-1. 访问 [在线演示](https://onlyoffice-web-comp.vercel.app/) 或本地启动：
+1. 访问 [在线演示](https://onlyoffice.agent-bridges.com/) 或本地启动：
 
 ```bash
 git clone <repository-url>
@@ -91,13 +91,14 @@ import { OnlyOfficeManager, FILE_TYPE, ONLYOFFICE_ID } from "@/components/onlyof
 ```
 onlyoffice-web-comp/
 ├── src/
-│   ├── app/                              # Next.js 路由
-│   │   ├── page.tsx                      # 主页
-│   │   ├── docs/                         # 文档站
-│   │   │   ├── page.tsx                  # /docs（概述 md）
-│   │   │   ├── [slug]/page.tsx           # /docs/*
+│   ├── app/                              # TanStack Start 文件路由
+│   │   ├── __root.tsx                    # HTML 壳与全局元数据
+│   │   ├── index.tsx                     # 主页
+│   │   ├── docs/                         # 文档路由
+│   │   │   ├── index.tsx                  # /docs 概述
+│   │   │   ├── $slug.tsx                  # /docs/* Markdown 页面
 │   │   │   └── demos/                    # /docs/demos/single|multi
-│   │   └── examples/                     # → 重定向至单实例示例
+│   │   └── examples.tsx                  # → 重定向至单实例示例
 │   ├── features/
 │   │   ├── docs/                         # 文档壳、Markdown 渲染、site-map
 │   │   ├── demo/                         # 在线演示组件
@@ -115,16 +116,18 @@ onlyoffice-web-comp/
 
 - **OnlyOffice SDK**：文档编辑核心
 - **x2t + WebAssembly**：格式转换
-- **Next.js 15 + React 19**：演示应用
+- **TanStack Start + React 19**：SSR 与文件路由
+- **Cloudflare Workers**：生产运行时、自定义域名和响应头
 
 ## 部署
 
 ```bash
 pnpm install
 pnpm build
+pnpm run deploy
 ```
 
-可部署至 Vercel 或任意静态托管。演示地址：[https://onlyoffice-web-comp.vercel.app/](https://onlyoffice-web-comp.vercel.app/)
+应用通过 Wrangler 以 TanStack Start SSR Worker 部署。生产路由写在 `wrangler.jsonc`，包括 `onlyoffice.agent-bridges.com` 和隔离子帧使用的 `*.b.agent-bridges.com`。项目不再使用 Vercel。
 
 ### 将 SDK 静态资源部署到 Cloudflare Pages CDN
 

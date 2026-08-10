@@ -4,12 +4,11 @@
  * 文档站布局：左侧目录 + 右侧 Markdown 内容区。
  * 目录数据来自 {@link ../config/site-map.ts}；示例项使用独立路由区分激活态。
  */
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "@tanstack/react-router";
 import { getDocsNav, isDocsNavActive } from "../config/site-map";
 
 export function DocsShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname() ?? "/docs";
+  const pathname = useLocation().pathname;
   const navGroups = getDocsNav();
 
   return (
@@ -32,7 +31,7 @@ export function DocsShell({ children }: { children: React.ReactNode }) {
                       return (
                         <li key={item.href}>
                           <Link
-                            href={item.href}
+                            to={item.href}
                             className={`-ml-px block border-l py-1.5 pl-3 text-[13px] transition-colors ${
                               active
                                 ? "border-neutral-900 font-medium text-neutral-950"

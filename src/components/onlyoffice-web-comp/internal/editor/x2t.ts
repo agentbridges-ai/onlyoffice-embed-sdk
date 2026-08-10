@@ -156,7 +156,7 @@ export class X2tConverter {
     this.initPromise = new Promise<void>((resolve, reject) => {
       try {
         /**
-         * @description 使用 Next.js 可识别的 URL 语法创建 module worker。
+         * @description 使用 Vite 可识别的 URL 语法创建 module worker。
          */
         this.worker = new Worker(new URL("./x2t.worker.ts", import.meta.url), {
           type: "module",

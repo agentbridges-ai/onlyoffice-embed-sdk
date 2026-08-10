@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "onlyoffice-web-comp",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+  "routes": [
+    {
+      "pattern": "onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "a.b.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "b.b.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "c.b.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "*.b.agent-bridges.com/*",
+      "zone_name": "agent-bridges.com"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

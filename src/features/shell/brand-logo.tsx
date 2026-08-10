@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 
 type BrandLogoProps = {
   compact?: boolean;
@@ -24,7 +24,7 @@ export function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
 
 export function BrandLogo({ compact = false, href = "/" }: BrandLogoProps) {
   return (
-    <Link href={href} className="inline-flex items-center gap-2.5">
+    <Link to={href} className="inline-flex items-center gap-2.5">
       <BrandMark />
       {!compact && (
         <span className="flex items-baseline gap-2">
