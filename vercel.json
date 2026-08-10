@@ -3,11 +3,11 @@
   "rewrites": [
     {
       "source": "/packages/onlyoffice/:version/web-apps/apps/:app/main/index.html",
-      "destination": "https://ca0eac5f.onlyoffice-packages.pages.dev/onlyoffice/:version/web-apps/apps/:app/main/"
+      "destination": "https://d69d942c.onlyoffice-embed-resource.pages.dev/onlyoffice/:version/web-apps/apps/:app/main/"
     },
     {
       "source": "/packages/:path*",
-      "destination": "https://ca0eac5f.onlyoffice-packages.pages.dev/:path*"
+      "destination": "https://d69d942c.onlyoffice-embed-resource.pages.dev/:path*"
     }
   ]
 }

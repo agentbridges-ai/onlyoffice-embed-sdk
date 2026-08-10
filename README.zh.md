@@ -132,18 +132,18 @@ OnlyOffice SDK 资源可以和应用分开托管。把 `public/packages` 的内�
 
 ```bash
 # 首次创建项目
-npx wrangler pages project create onlyoffice-packages
+npx wrangler pages project create onlyoffice-embed-resource
 
 # 将 public/packages 作为 CDN 根目录上传
 npx wrangler pages deploy public/packages \
-  --project-name onlyoffice-packages \
+  --project-name onlyoffice-embed-resource \
   --commit-dirty=true
 ```
 
 部署后资源地址应该类似：
 
 ```text
-https://<project>.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
+https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
 ```
 
 在运行时把 Pages origin 注册为静态资源根地址：
@@ -152,7 +152,7 @@ https://<project>.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents
 import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
 
 OnlyOfficeManager.registerStaticResource({
-  cdnOrigin: "https://<project>.pages.dev",
+  cdnOrigin: "https://<deployment-id>.onlyoffice-embed-resource.pages.dev",
 });
 ```
 
