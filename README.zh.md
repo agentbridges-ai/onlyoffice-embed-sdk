@@ -163,14 +163,14 @@ OnlyOfficeManager.registerStaticResource({
 
 ### GitHub Actions 生产发布
 
-推送到 `main` 会运行 [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml)。通过类型检查和构建后，Workflow 会把 `public/packages` 发布到 `onlyoffice-embed-resource` Pages 项目，清理旧的生产部署别名，并发布提供 `onlyoffice.agent-bridges.com` 及 12 个 Subframe 子域名的 TanStack Start Worker。
+推送到 `main` 会运行 [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml)。通过类型检查和构建后，Workflow 会把 `public/packages` 发布到 `onlyoffice-embed-resource` Pages 项目，并发布提供 `onlyoffice.agent-bridges.com` 及 12 个 Subframe 子域名的 TanStack Start Worker。
 
 合并前请在仓库中配置以下 Secrets：
 
 - `CLOUDFLARE_API_TOKEN`：具备 Pages 和 Workers 发布权限的受限 Cloudflare API Token
 - `CLOUDFLARE_ACCOUNT_ID`：`40a503f1c86c028edfcd6f113c562b5b`
 
-应用使用固定的 Pages 资源地址 `https://onlyoffice-embed-resource.pages.dev`。Cloudflare 内部仍可能为当前部署生成一个 ID 地址，但旧 ID 会由 Workflow 自动清理，应用不会引用这些地址。
+应用使用固定的 Pages 资源地址 `https://onlyoffice-embed-resource.pages.dev`，不会引用部署专属的 ID 地址。
 
 ## 字体配置
 

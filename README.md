@@ -163,14 +163,14 @@ OnlyOfficeManager.registerStaticResource({
 
 ### GitHub Actions production deployment
 
-Pushes to `main` run [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml). After type checking and building, it deploys `public/packages` to the `onlyoffice-embed-resource` Pages project, removes stale production deployment aliases, and publishes the TanStack Start Worker serving `onlyoffice.agent-bridges.com` and its twelve Subframe hosts.
+Pushes to `main` run [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml). After type checking and building, it deploys `public/packages` to the `onlyoffice-embed-resource` Pages project and publishes the TanStack Start Worker serving `onlyoffice.agent-bridges.com` and its twelve Subframe hosts.
 
 Configure these repository secrets before merging:
 
 - `CLOUDFLARE_API_TOKEN`: a scoped Cloudflare API token with Pages and Workers deployment permissions
 - `CLOUDFLARE_ACCOUNT_ID`: `40a503f1c86c028edfcd6f113c562b5b`
 
-The application uses the stable Pages origin `https://onlyoffice-embed-resource.pages.dev`; Cloudflare may still create one current deployment identifier internally, but stale identifiers are cleaned up automatically and are never used by the app.
+The application uses the stable Pages origin `https://onlyoffice-embed-resource.pages.dev`; deployment-specific Pages URLs are not used by the app.
 
 ## Fonts
 
