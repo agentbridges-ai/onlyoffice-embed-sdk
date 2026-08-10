@@ -77,6 +77,12 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Type check repository
+        run: pnpm exec tsc --noEmit
+
+      - name: Build demo application
+        run: pnpm run build
+
       - name: Run focused runtime regressions
         run: >-
           pnpm exec playwright test
