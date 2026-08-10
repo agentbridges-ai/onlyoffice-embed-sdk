@@ -1,9 +1,6 @@
-import type {
-  FileType,
-  OnlyOfficeConnector,
-  OnlyOfficeManager,
-} from "@/components/onlyoffice-web-comp";
+import type { FileType, OnlyOfficeConnector } from "@/components/onlyoffice-web-comp";
 import { getFileExtension } from "./office-formats";
+import type { MultiInstanceManager } from "./subframe-manager";
 
 export type ConnectorDemo = {
   readonly isConnected: boolean;
@@ -51,7 +48,7 @@ function getConnectorSuccessMessage(fileType: FileType) {
  * Automation API 仅存在于 callCommand 传入的函数源码中，不污染宿主页面全局作用域。
  */
 export function createConnectorDemo(
-  getManager: () => OnlyOfficeManager,
+  getManager: () => MultiInstanceManager,
 ): ConnectorDemo {
   const manager = getManager();
   const connector: OnlyOfficeConnector = manager

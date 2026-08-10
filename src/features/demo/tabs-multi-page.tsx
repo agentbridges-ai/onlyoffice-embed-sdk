@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * 多实例 Tab 演示：onlyOfficeManagerFactory 按 containerId 隔离，切换 Tab 时隐藏不销毁。
+ * 多实例 Tab 演示：每个 Tab 运行在独立 origin 的 Subframe 中，切换 Tab 时只隐藏 iframe。
  * 文档与完整源码说明见 `onlyoffice-web-comp/docs/多实例示例.md`。
  */
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import {
   DemoButton,
@@ -26,6 +26,10 @@ import {
 } from "./connector-demo";
 import { getFileExtension } from "./office-formats";
 import {
+  getSubframeOrigin,
+  SubframeManager,
+} from "./subframe-manager";
+import {
   applyDemoResourceMode,
   getDemoResourceState,
   ResourceSwitcher,
@@ -34,15 +38,12 @@ import {
 import {
   DEFAULT_OFFICE_THEME,
   FILE_TYPE,
-  ONLYOFFICE_CONTAINER_CONFIG,
-  ONLYOFFICE_EVENT_KEYS,
   OFFICE_XML_EVENT_CONFIG,
   OFFICE_THEME_OPTIONS,
-  onlyOfficeManagerFactory,
-  onlyofficeEventbus,
   type FileType,
   type OfficeTheme,
 } from "@/components/onlyoffice-web-comp";
+import { SUBFRAME_EDITOR_CONTAINER_ID as SUBFRAME_CONTAINER_ID } from "./subframe-protocol";
 
 type DocKind = "word" | "excel" | "ppt";
 
@@ -58,6 +59,7 @@ type TabItem = {
   id: string;
   label: string;
   containerId: string;
+  subframeHost: string;
   fileName: string;
   readOnly: boolean;
   docKind: DocKind;
@@ -92,20 +94,48 @@ const DOC_PRESETS: Record<DocKind, DocPreset> = {
   },
 };
 
-const OnlyOfficeTabHost = memo(function OnlyOfficeTabHost({
-  containerId,
+const SubframeTabHost = memo(function SubframeTabHost({
+  tabId,
+  src,
+  title,
+  onFrame,
+  onLoad,
 }: {
-  containerId: string;
+  tabId: string;
+  src: string;
+  title: string;
+  onFrame: (tabId: string, frame: HTMLIFrameElement | null) => void;
+  onLoad: (tabId: string) => void;
 }) {
+  const handleFrame = useCallback(
+    (frame: HTMLIFrameElement | null) => onFrame(tabId, frame),
+    [onFrame, tabId],
+  );
+  const handleLoad = useCallback(() => onLoad(tabId), [onLoad, tabId]);
+
   return (
-    <div
-      className={`${ONLYOFFICE_CONTAINER_CONFIG.PARENT_CLASS_NAME} absolute inset-0`}
-      data-onlyoffice-container-id={containerId}
-    >
-      <div id={containerId} className="absolute inset-0" />
-    </div>
+    <iframe
+      ref={handleFrame}
+      src={src}
+      title={title}
+      data-onlyoffice-subframe="true"
+      data-onlyoffice-instance-id={tabId}
+      className="absolute inset-0 h-full w-full border-0"
+      onLoad={handleLoad}
+    />
   );
 });
+
+function getSubframeLabel(index: number) {
+  let value = Math.max(1, index);
+  let label = "";
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(97 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
+}
 
 function getPreset(docKind: DocKind) {
   return DOC_PRESETS[docKind];
@@ -122,6 +152,7 @@ function createTab(index: number, docKind: DocKind): TabItem {
     id,
     label: `${preset.label} ${index}`,
     containerId: `tab-editor-${id}`,
+    subframeHost: getSubframeLabel(index),
     fileName: preset.defaultFileName,
     readOnly: false,
     docKind,
@@ -145,16 +176,82 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
   const [officeXmlLimitMb, setOfficeXmlLimitMb] = useState(
     Math.round(OFFICE_XML_EVENT_CONFIG.default.limitBytes / 1024 / 1024),
   );
-  const [cdnOrigin, setCdnOrigin] = useState(
-    () => getDemoResourceState().cdnOrigin,
-  );
-  const [resourceRevision, setResourceRevision] = useState(0);
+  const [resourceState, setResourceState] = useState(() => getDemoResourceState());
+  const [cdnOrigin, setCdnOrigin] = useState(resourceState.cdnOrigin);
   const initializedRef = useRef(new Set<string>());
   const connectorsRef = useRef(new Map<string, ConnectorDemo>());
+  const frameRefs = useRef(new Map<string, HTMLIFrameElement>());
+  const managersRef = useRef(new Map<string, SubframeManager>());
+  const activeIdRef = useRef(activeId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const connectorMessageTimerRef = useRef<number | null>(null);
   const [connectorMessage, setConnectorMessage] =
     useState<ConnectorMessage | null>(null);
+
+  activeIdRef.current = activeId;
+
+  const handleSubframeEvent = useCallback(
+    (tabId: string, event: string, payload: unknown) => {
+      if (event === "loading-change" && activeIdRef.current === tabId) {
+        setLoading(!!(payload as { loading?: boolean } | undefined)?.loading);
+      }
+      if (
+        event === "office-xml-size-limit-exceeded" &&
+        activeIdRef.current === tabId
+      ) {
+        setError("文件过大，不支持解析");
+      }
+    },
+    [],
+  );
+
+  const handleFrameRef = useCallback(
+    (tabId: string, frame: HTMLIFrameElement | null) => {
+      if (frame) {
+        frameRefs.current.set(tabId, frame);
+        managersRef.current.get(tabId)?.attachFrame(frame);
+        return;
+      }
+
+      frameRefs.current.delete(tabId);
+      managersRef.current.get(tabId)?.detachFrame();
+    },
+    [],
+  );
+
+  const handleSubframeLoad = useCallback((tabId: string) => {
+    const frame = frameRefs.current.get(tabId);
+    if (frame) managersRef.current.get(tabId)?.attachFrame(frame);
+  }, []);
+
+  const getTabManager = (tab: TabItem) => {
+    const existing = managersRef.current.get(tab.id);
+    const frame = frameRefs.current.get(tab.id);
+    if (existing) {
+      if (frame) existing.attachFrame(frame);
+      return existing;
+    }
+    if (!frame) {
+      throw new Error("OnlyOffice subframe is not mounted");
+    }
+
+    const preset = getPreset(tab.docKind);
+    const manager = new SubframeManager({
+      containerId: SUBFRAME_CONTAINER_ID,
+      fileType: preset.fileType,
+      defaultFileName: preset.defaultFileName,
+      readOnly: tab.readOnly,
+      theme,
+      officeXmlEvent: getOfficeXmlEventConfig(),
+      instanceId: tab.id,
+      targetOrigin: getSubframeOrigin(tab.subframeHost),
+      frame,
+      onEvent: (event, payload) =>
+        handleSubframeEvent(tab.id, event, payload),
+    });
+    managersRef.current.set(tab.id, manager);
+    return manager;
+  };
 
   const removeTabConnector = (tabId: string) => {
     const connector = connectorsRef.current.get(tabId);
@@ -166,7 +263,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
 
   const replaceTabConnector = (
     tabId: string,
-    manager: Awaited<ReturnType<typeof onlyOfficeManagerFactory.open>>,
+    manager: SubframeManager,
   ) => {
     removeTabConnector(tabId);
     const connector = createConnectorDemo(() => manager);
@@ -188,16 +285,27 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
   useEffect(
     () =>
       subscribeDemoResourceChange((state) => {
+        setResourceState(state);
         setCdnOrigin(state.cdnOrigin);
         setLoading(true);
         connectorsRef.current.forEach((connector) => connector.disconnect());
         connectorsRef.current.clear();
-        onlyOfficeManagerFactory.destroyAll();
+        managersRef.current.forEach((manager) => manager.destroy());
+        managersRef.current.clear();
         initializedRef.current.clear();
-        setResourceRevision(state.revision);
       }),
     [],
   );
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      managersRef.current.forEach((manager) => {
+        manager.handleMessage(event);
+      });
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     const { tabs: initialTabs, activeId: initialActiveId } = createInitialTabState();
@@ -232,21 +340,18 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
   const openTabEditor = async (tab: TabItem) => {
     const preset = getPreset(tab.docKind);
 
-    const manager = await onlyOfficeManagerFactory.open(
-      {
-        containerId: tab.containerId,
-        fileType: preset.fileType,
-        defaultFileName: preset.defaultFileName,
-        readOnly: tab.readOnly,
-        theme,
-        officeXmlEvent: getOfficeXmlEventConfig(),
-      },
-      {
-        fileName: tab.fileName,
-        isNew: isNewDocument(tab),
-        readOnly: tab.readOnly,
-      },
-    );
+    const manager = getTabManager(tab);
+    manager.configure({
+      defaultFileName: preset.defaultFileName,
+      readOnly: tab.readOnly,
+      theme,
+      officeXmlEvent: getOfficeXmlEventConfig(),
+    });
+    await manager.openDocument({
+      fileName: tab.fileName,
+      isNew: isNewDocument(tab),
+      readOnly: tab.readOnly,
+    });
 
     replaceTabConnector(tab.id, manager);
     initializedRef.current.add(tab.id);
@@ -263,7 +368,8 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
     openTabEditor(tab)
       .then(() => {
         if (cancelled) {
-          onlyOfficeManagerFactory.destroy(tab.containerId);
+          managersRef.current.get(tab.id)?.destroy();
+          managersRef.current.delete(tab.id);
           initializedRef.current.delete(tab.id);
           return;
         }
@@ -280,22 +386,15 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, tabs, resourceRevision]);
+  }, [activeId, tabs, resourceState.revision]);
 
   useEffect(() => {
-    const handleLoadingChange = (data: { loading: boolean }) => {
-      setLoading(data.loading);
-    };
-    onlyofficeEventbus.on(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, handleLoadingChange);
-
     return () => {
-      onlyofficeEventbus.off(
-        ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE,
-        handleLoadingChange,
-      );
       connectorsRef.current.forEach((connector) => connector.disconnect());
       connectorsRef.current.clear();
-      onlyOfficeManagerFactory.destroyAll();
+      managersRef.current.forEach((manager) => manager.destroy());
+      managersRef.current.clear();
+      frameRefs.current.clear();
       initializedRef.current.clear();
       if (connectorMessageTimerRef.current !== null) {
         window.clearTimeout(connectorMessageTimerRef.current);
@@ -315,7 +414,9 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
     const tab = tabs.find((item) => item.id === tabId);
     if (tab) {
       removeTabConnector(tab.id);
-      onlyOfficeManagerFactory.destroy(tab.containerId);
+      managersRef.current.get(tab.id)?.destroy();
+      managersRef.current.delete(tab.id);
+      frameRefs.current.delete(tab.id);
       initializedRef.current.delete(tab.id);
     }
 
@@ -335,9 +436,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
       await openTabEditor(activeTab);
     }
 
-    const manager = onlyOfficeManagerFactory.get(activeTab.containerId);
-    if (!manager) throw new Error("Editor is not initialized");
-    return manager;
+    return getTabManager(activeTab);
   };
 
   const uploadFile = (file: File) =>
@@ -346,21 +445,18 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
 
       const preset = getPreset(activeTab.docKind);
 
-      const manager = await onlyOfficeManagerFactory.open(
-        {
-          containerId: activeTab.containerId,
-          fileType: preset.fileType,
-          defaultFileName: preset.defaultFileName,
-          readOnly: activeTab.readOnly,
-          theme,
-          officeXmlEvent: getOfficeXmlEventConfig(),
-        },
-        {
-          fileName: file.name,
-          file,
-          readOnly: activeTab.readOnly,
-        },
-      );
+      const manager = getTabManager(activeTab);
+      manager.configure({
+        defaultFileName: preset.defaultFileName,
+        readOnly: activeTab.readOnly,
+        theme,
+        officeXmlEvent: getOfficeXmlEventConfig(),
+      });
+      await manager.openDocument({
+        fileName: file.name,
+        file,
+        readOnly: activeTab.readOnly,
+      });
 
       replaceTabConnector(activeTab.id, manager);
       initializedRef.current.add(activeTab.id);
@@ -373,21 +469,18 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
 
       const preset = getPreset(activeTab.docKind);
 
-      const manager = await onlyOfficeManagerFactory.open(
-        {
-          containerId: activeTab.containerId,
-          fileType: preset.fileType,
-          defaultFileName: preset.defaultFileName,
-          readOnly: activeTab.readOnly,
-          theme,
-          officeXmlEvent: getOfficeXmlEventConfig(),
-        },
-        {
-          fileName: preset.defaultFileName,
-          isNew: true,
-          readOnly: activeTab.readOnly,
-        },
-      );
+      const manager = getTabManager(activeTab);
+      manager.configure({
+        defaultFileName: preset.defaultFileName,
+        readOnly: activeTab.readOnly,
+        theme,
+        officeXmlEvent: getOfficeXmlEventConfig(),
+      });
+      await manager.openDocument({
+        fileName: preset.defaultFileName,
+        isNew: true,
+        readOnly: activeTab.readOnly,
+      });
 
       replaceTabConnector(activeTab.id, manager);
       initializedRef.current.add(activeTab.id);
@@ -452,29 +545,10 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
     runAction(async () => {
       if (!activeTab) return;
 
-      const preset = getPreset(activeTab.docKind);
       const manager = await ensureActiveManager();
       const nextReadOnly = !activeTab.readOnly;
 
-      if (manager.isReady()) {
-        await manager.setReadOnly(nextReadOnly);
-      } else {
-        await onlyOfficeManagerFactory.open(
-          {
-            containerId: activeTab.containerId,
-            fileType: preset.fileType,
-            defaultFileName: preset.defaultFileName,
-            readOnly: nextReadOnly,
-            theme,
-            officeXmlEvent: getOfficeXmlEventConfig(),
-          },
-          {
-            fileName: activeTab.fileName,
-            isNew: isNewDocument(activeTab),
-            readOnly: nextReadOnly,
-          },
-        );
-      }
+      await manager.setReadOnly(nextReadOnly);
 
       updateTab(activeTab.id, { readOnly: nextReadOnly });
     }, "切换模式失败");
@@ -487,7 +561,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
         tabs.map(async (tab) => {
           if (!initializedRef.current.has(tab.id)) return;
 
-          const manager = onlyOfficeManagerFactory.get(tab.containerId);
+          const manager = managersRef.current.get(tab.id);
           if (manager?.isReady()) {
             await manager.setTheme(nextTheme);
           }
@@ -499,6 +573,20 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
     runAction(async () => {
       applyDemoResourceMode("cdn", cdnOrigin);
     }, "切换资源失败");
+
+  const getSubframeSrc = (tab: TabItem) => {
+    const url = new URL(
+      "/subframe",
+      getSubframeOrigin(tab.subframeHost),
+    );
+    url.searchParams.set("instance", tab.id);
+    url.searchParams.set("resourceMode", resourceState.mode);
+    url.searchParams.set("resourceRevision", String(resourceState.revision));
+    if (resourceState.mode === "cdn") {
+      url.searchParams.set("cdnOrigin", resourceState.cdnOrigin);
+    }
+    return url.href;
+  };
 
   const isActiveDocx = activeTab
     ? getFileExtension(activeTab.fileName, activePreset?.fileType) === "docx"
@@ -707,7 +795,13 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
               activeId === tab.id ? "visible z-10" : "invisible z-0"
             }`}
           >
-            <OnlyOfficeTabHost containerId={tab.containerId} />
+            <SubframeTabHost
+              tabId={tab.id}
+              src={getSubframeSrc(tab)}
+              title={`${getPreset(tab.docKind).label} ${tab.label} 编辑器`}
+              onFrame={handleFrameRef}
+              onLoad={handleSubframeLoad}
+            />
           </div>
         ))}
 

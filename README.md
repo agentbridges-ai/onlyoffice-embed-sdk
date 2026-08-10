@@ -132,18 +132,18 @@ OnlyOffice SDK assets can be hosted separately from the app. Deploy the contents
 
 ```bash
 # one-time project creation
-npx wrangler pages project create onlyoffice-packages
+npx wrangler pages project create onlyoffice-embed-resource
 
 # upload public/packages as the CDN root
 npx wrangler pages deploy public/packages \
-  --project-name onlyoffice-packages \
+  --project-name onlyoffice-embed-resource \
   --commit-dirty=true
 ```
 
 After deployment, the asset URL should look like:
 
 ```text
-https://<project>.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
+https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
 ```
 
 Use that Pages origin as the runtime resource root:
@@ -152,7 +152,7 @@ Use that Pages origin as the runtime resource root:
 import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
 
 OnlyOfficeManager.registerStaticResource({
-  cdnOrigin: "https://<project>.pages.dev",
+  cdnOrigin: "https://<deployment-id>.onlyoffice-embed-resource.pages.dev",
 });
 ```
 

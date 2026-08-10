@@ -1,16 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type {
-  OnlyOfficeManager,
-  RevisionItem,
-} from "@/components/onlyoffice-web-comp";
+import type { RevisionItem } from "@/components/onlyoffice-web-comp";
 import { DemoButton, DemoMenuRow } from "./demo-toolbar";
+import type { MultiInstanceManager } from "./subframe-manager";
 
 type DocxRevisionsCrudProps = {
   disabled?: boolean;
   getManager: () =>
-    OnlyOfficeManager | Promise<OnlyOfficeManager | null> | null;
+    MultiInstanceManager | Promise<MultiInstanceManager | null> | null;
   onError?: (message: string, err: unknown) => void;
 };
 
@@ -31,7 +29,7 @@ export function DocxRevisionsCrud({
   const [status, setStatus] = useState("0 条");
 
   const runRevisionAction = async (
-    action: (manager: OnlyOfficeManager) => void | Promise<void>,
+    action: (manager: MultiInstanceManager) => void | Promise<void>,
     errorMessage: string,
   ) => {
     try {
@@ -46,7 +44,7 @@ export function DocxRevisionsCrud({
     }
   };
 
-  const refreshRevisions = async (manager: OnlyOfficeManager) => {
+  const refreshRevisions = async (manager: MultiInstanceManager) => {
     const revisions = await manager.getEditor().getAllRevisions();
     setStatus(`${revisions.length} 条`);
     return revisions;
