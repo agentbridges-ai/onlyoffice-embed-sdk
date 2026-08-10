@@ -15,6 +15,7 @@ export type ScenarioResult = {
 
 export const ONLYOFFICE_FACTORY_EXPECTED_STEPS = [
   "resource mode",
+  "CDN Nexolyra plugin READY",
   "manager factory concurrent open",
   "manager factory open/get",
   "manager facade from factory",

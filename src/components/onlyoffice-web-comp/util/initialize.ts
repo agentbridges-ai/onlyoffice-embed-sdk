@@ -1,88 +1,115 @@
 import { STATIC_RESOURCE } from "../const";
 
-let initializePromise: Promise<void> | null = null;
-let initializeApiUrl = "";
-
 type DocsApiWindow = Window & {
-  DocsAPI?: unknown;
+  DocsAPI?: {
+    DocEditor?: unknown;
+  };
 };
 
-function resetLoadedDocsApi(apiUrl: string) {
-  if (!initializeApiUrl || initializeApiUrl === apiUrl) {
+type InitializeState = {
+  promise: Promise<void> | null;
+  apiUrl: string;
+};
+
+const initializeStates = new WeakMap<Window, InitializeState>();
+
+function getInitializeState(ownerWindow: Window): InitializeState {
+  let state = initializeStates.get(ownerWindow);
+  if (!state) {
+    state = { promise: null, apiUrl: "" };
+    initializeStates.set(ownerWindow, state);
+  }
+  return state;
+}
+
+function resetLoadedDocsApi(
+  ownerWindow: DocsApiWindow,
+  state: InitializeState,
+  apiUrl: string,
+) {
+  if (!state.apiUrl || state.apiUrl === apiUrl) {
     return;
   }
 
-  document
+  ownerWindow.document
     .querySelectorAll<HTMLScriptElement>(
       'script[src*="/web-apps/apps/api/documents/api.js"]',
     )
     .forEach((script) => script.remove());
-  document
+  ownerWindow.document
     .querySelectorAll<HTMLIFrameElement>("iframe[data-onlyoffice-preload]")
     .forEach((iframe) => iframe.remove());
 
   try {
-    delete (window as DocsApiWindow).DocsAPI;
+    delete ownerWindow.DocsAPI;
   } catch {
-    (window as DocsApiWindow).DocsAPI = undefined;
+    ownerWindow.DocsAPI = undefined;
   }
 }
 
-function preloadEditorFrame() {
-  if (document.querySelector(`iframe[data-onlyoffice-preload="${STATIC_RESOURCE.onlyoffice.preloadHtml}"]`)) {
+function preloadEditorFrame(ownerWindow: Window) {
+  const ownerDocument = ownerWindow.document;
+  if (
+    ownerDocument.querySelector(
+      `iframe[data-onlyoffice-preload="${STATIC_RESOURCE.onlyoffice.preloadHtml}"]`,
+    )
+  ) {
     return;
   }
 
-  const iframe = document.createElement("iframe");
+  const iframe = ownerDocument.createElement("iframe");
   iframe.src = STATIC_RESOURCE.onlyoffice.preloadUrl;
   iframe.dataset.onlyofficePreload = STATIC_RESOURCE.onlyoffice.preloadHtml;
   iframe.className = "w-0 h-0 hidden absolute -z-10";
-  document.body.appendChild(iframe);
+  ownerDocument.body.appendChild(iframe);
 }
 
-export async function initializeOnlyOffice() {
-  if (typeof window === "undefined") return;
+export async function initializeOnlyOffice(ownerWindow?: Window) {
+  const targetWindow =
+    ownerWindow ?? (typeof window === "undefined" ? undefined : window);
+  if (!targetWindow) return;
 
   const apiUrl = STATIC_RESOURCE.onlyoffice.apiUrl;
+  const state = getInitializeState(targetWindow);
 
-  if (initializePromise && initializeApiUrl === apiUrl) {
-    return initializePromise;
+  if (state.promise && state.apiUrl === apiUrl) {
+    return state.promise;
   }
 
-  if (initializePromise && initializeApiUrl !== apiUrl) {
-    initializePromise = null;
+  if (state.promise && state.apiUrl !== apiUrl) {
+    state.promise = null;
   }
-  resetLoadedDocsApi(apiUrl);
-  initializeApiUrl = apiUrl;
+  resetLoadedDocsApi(targetWindow, state, apiUrl);
+  state.apiUrl = apiUrl;
 
-  initializePromise = new Promise<void>((resolve, reject) => {
-    preloadEditorFrame();
+  state.promise = new Promise<void>((resolve, reject) => {
+    preloadEditorFrame(targetWindow);
 
-    if (window.DocsAPI?.DocEditor) {
+    if (targetWindow.DocsAPI?.DocEditor) {
       resolve();
       return;
     }
 
-    let script = document.querySelector<HTMLScriptElement>(
+    let script = targetWindow.document.querySelector<HTMLScriptElement>(
       `script[src="${apiUrl}"]`,
     );
 
     if (!script) {
-      script = document.createElement("script");
+      script = targetWindow.document.createElement("script");
       script.src = apiUrl;
-      document.head.appendChild(script);
+      targetWindow.document.head.appendChild(script);
     }
 
     script.addEventListener("load", () => resolve(), { once: true });
     script.addEventListener(
       "error",
       () => {
-        initializePromise = null;
+        state.promise = null;
         reject(new Error("Failed to load OnlyOffice DocsAPI script"));
       },
       { once: true },
     );
   });
 
-  return initializePromise;
+  return state.promise;
 }

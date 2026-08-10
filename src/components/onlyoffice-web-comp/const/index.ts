@@ -119,6 +119,8 @@ export type OnlyOfficeStaticResourceOptions = {
   cdnOrigin?: string | null;
   /** CDN 上的 OnlyOffice 目录版本；未传时使用当前 SDK 版本。 */
   onlyofficeVersion?: string | null;
+  /** 由部署/发布流程声明的资源清单 SHA-256；SDK 仅校验格式并用于 identity 比较。 */
+  assetManifestDigest?: string | null;
 };
 
 const X2T_PDF_DEFAULT_FONT_FILE = "Carlito-Regular.ttf";
@@ -229,9 +231,18 @@ let staticResourceCache: StaticResource | null = null;
 export function registerOnlyOfficeStaticResource(
   options: OnlyOfficeStaticResourceOptions,
 ): StaticResource {
-  staticResourceOptions = { ...options };
+  const digest = options.assetManifestDigest?.toLowerCase() ?? null;
+  if (digest !== null && !/^[a-f0-9]{64}$/.test(digest)) {
+    throw new Error("assetManifestDigest must be a SHA-256 hex digest");
+  }
+  staticResourceOptions = { ...options, assetManifestDigest: digest };
   staticResourceCache = null;
   return getStaticResource();
+}
+
+/** 返回部署方声明的资源清单摘要；未配置时为 null。 */
+export function getOnlyOfficeStaticResourceManifestDigest(): string | null {
+  return staticResourceOptions?.assetManifestDigest ?? null;
 }
 
 /** 清空运行时注册地址，恢复默认静态资源地址。 */
@@ -250,13 +261,17 @@ export function getStaticResource(): StaticResource {
 }
 
 /** 静态资源走外部 CDN（iframe 与主站跨域）。 */
-export function isOnlyOfficeCdnMode(): boolean {
+export function isOnlyOfficeCdnMode(
+  ownerWindow?: Pick<Window, "location">,
+): boolean {
   const root = getStaticResource().onlyoffice.root;
-  if (!/^https?:\/\//i.test(root) || typeof window === "undefined") {
+  const targetWindow =
+    ownerWindow ?? (typeof window === "undefined" ? undefined : window);
+  if (!/^https?:\/\//i.test(root) || !targetWindow) {
     return false;
   }
   try {
-    return new URL(root).origin !== window.location.origin;
+    return new URL(root).origin !== targetWindow.location.origin;
   } catch {
     return false;
   }

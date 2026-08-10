@@ -353,11 +353,14 @@
     }
     try {
       var parsed = new URL(url, window.location.href);
+      var isCrossOriginPluginConfig =
+        parsed.origin !== window.location.origin &&
+        parsed.pathname.slice(-"/config.json".length) === "/config.json";
       return (
         parsed.pathname.indexOf("/cache/files/") !== -1 ||
         parsed.pathname.indexOf("/downloadas/") !== -1 ||
         parsed.pathname.indexOf("/upload/") !== -1 ||
-        parsed.pathname === "/plugins.json"
+        isCrossOriginPluginConfig
       );
     } catch (error) {
       return false;

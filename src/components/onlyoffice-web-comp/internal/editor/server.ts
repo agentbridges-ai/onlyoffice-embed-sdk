@@ -4,6 +4,8 @@ import {
   User,
   Participant,
   AscSaveTypes,
+  type EditorDownloadOutput,
+  type EditorCapturedDocumentSnapshot,
   ServerOptions,
   OfficeXmlSizeLimitExceededError,
   isOfficeXmlSizeLimitExceededError,
@@ -952,9 +954,7 @@ export class EditorServer {
    * @description export() 调用 downloadAs("bin") 后等待 resolvePendingExport 完成。
    */
   private pendingExport: {
-    resolve: (
-      snapshot: ReturnType<EditorServer["getDocumentSnapshot"]>,
-    ) => void;
+    resolve: (snapshot: EditorCapturedDocumentSnapshot) => void;
     reject: (error: Error) => void;
     timer: number;
   } | null = null;
@@ -1336,7 +1336,7 @@ export class EditorServer {
   async captureCurrentDocument(
     trigger: () => void,
     timeout = 30000,
-  ): Promise<ReturnType<EditorServer["getDocumentSnapshot"]>> {
+  ): Promise<EditorCapturedDocumentSnapshot> {
     await this.savingDone;
 
     this.downloadParts = [];
@@ -1683,20 +1683,41 @@ export class EditorServer {
     cmd: Record<string, unknown> | null,
     input: Uint8Array,
   ) {
-    if (cmd?.isSaveAs === true) {
-      return true;
-    }
+    if (this.isNativeDownloadAsCommand(cmd)) return true;
     if (!isValidEditorBin(input)) {
       return true;
     }
 
+    return false;
+  }
+
+  private isNativeDownloadAsCommand(
+    cmd: Record<string, unknown> | null,
+    input?: Uint8Array,
+    hasPendingCapture = false,
+  ) {
     const outputFormat =
       typeof cmd?.outputformat === "number" ? cmd.outputformat : undefined;
-    if (outputFormat == null || isCanvasBinOutputFormat(outputFormat)) {
+    if (isCanvasBinOutputFormat(outputFormat)) {
       return false;
     }
 
     const targetExt = extensionFromOutputFormat(outputFormat);
+    // DocsAPI 9.4 ignores downloadAs("bin") when constructing the HTTP cmd:
+    // it posts a valid Editor.bin body with the open document's outputformat
+    // (for example 65/docx). While captureCurrentDocument is pending, that
+    // current-format command is the capture response, not a native download.
+    if (
+      hasPendingCapture &&
+      input &&
+      isValidEditorBin(input) &&
+      normalizeX2tExportFileType(targetExt) ===
+        normalizeX2tExportFileType(this.fileType)
+    ) {
+      return false;
+    }
+    if (cmd?.isSaveAs === true) return true;
+    if (outputFormat == null) return false;
     return Boolean(targetExt && targetExt !== "bin");
   }
 
@@ -1877,7 +1898,13 @@ export class EditorServer {
     }
 
     this.updateEditorBin(data);
-    pendingExport.resolve(this.getDocumentSnapshot());
+    const capturedDirtyRevision = this.options.getState?.().dirtyRevision;
+    pendingExport.resolve({
+      ...this.getDocumentSnapshot(),
+      ...(capturedDirtyRevision === undefined
+        ? {}
+        : { capturedDirtyRevision }),
+    });
     return true;
   }
 
@@ -2258,6 +2285,7 @@ export class EditorServer {
         status: "ok" | "err";
         isExport: boolean;
         isSaveAs: boolean;
+        isIntercepted: boolean;
         downloadUrl: string;
         filetype: string;
         error?: string;
@@ -2268,13 +2296,23 @@ export class EditorServer {
         const cmdSnapshot = this.downloadCmd;
         this.downloadCmd = null;
 
-        const resolvedExport = this.resolvePendingExport(input);
+        // Native Save Copy As / Download As can complete while a programmatic
+        // Editor.bin capture is pending. Classify the command before consuming
+        // pendingExport so native output cannot resolve the wrong request.
+        const isNativeDownloadOutput = this.isNativeDownloadAsCommand(
+          cmdSnapshot,
+          input,
+          Boolean(this.pendingExport),
+        );
+        const resolvedExport =
+          !isNativeDownloadOutput && this.resolvePendingExport(input);
         if (resolvedExport) {
           this.endSaving();
           return {
             status: "ok",
             isExport: true,
             isSaveAs: false,
+            isIntercepted: false,
             downloadUrl: "",
             filetype: "bin",
           };
@@ -2291,16 +2329,37 @@ export class EditorServer {
             input,
             filetype,
           );
-          const downloadUrl = this.storeDownloadOutput(
-            outputName,
-            outputData,
-            downloadFileName,
-          );
+          const output: EditorDownloadOutput = {
+            kind: cmdSnapshot?.isSaveAs === true ? "save-as" : "download",
+            fileName: downloadFileName,
+            fileType: filetype,
+            data: outputData.slice(),
+          };
+          let isIntercepted = false;
+          try {
+            isIntercepted =
+              (await this.options.onDownloadOutput?.(output)) === true;
+          } catch (error) {
+            this.logRaw(
+              "error",
+              "download",
+              "download output callback failed",
+              ["[EditorServer] download output callback failed:", error],
+            );
+          }
+          const downloadUrl = isIntercepted
+            ? ""
+            : this.storeDownloadOutput(
+                outputName,
+                outputData,
+                downloadFileName,
+              );
           this.endSaving();
           return {
             status: "ok",
             isExport: false,
-            isSaveAs: true,
+            isSaveAs: output.kind === "save-as",
+            isIntercepted,
             downloadUrl,
             filetype,
           };
@@ -2315,6 +2374,7 @@ export class EditorServer {
           status: "ok",
           isExport: false,
           isSaveAs: false,
+          isIntercepted: false,
           downloadUrl: this.urlsMap.get("Editor.bin") || "",
           filetype: this.fileType,
         };
@@ -2324,6 +2384,7 @@ export class EditorServer {
         status: "ok",
         isExport: false,
         isSaveAs: false,
+        isIntercepted: false,
         downloadUrl: "",
         filetype: this.fileType,
       };
@@ -2342,6 +2403,7 @@ export class EditorServer {
             status: "err",
             isExport: false,
             isSaveAs: false,
+            isIntercepted: false,
             downloadUrl: "",
             filetype: this.fileType,
             error: err instanceof Error ? err.message : String(err),
@@ -2393,7 +2455,7 @@ export class EditorServer {
               status,
               data:
                 status === "ok"
-                  ? result.isExport
+                  ? result.isExport || result.isIntercepted
                     ? PROGRAMMATIC_EXPORT_ACK_URL
                     : downloadUrl
                   : error || "download failed",

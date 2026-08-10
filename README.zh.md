@@ -10,12 +10,13 @@
 
 | 部分 | 路径 | 说明 |
 |------|------|------|
-| **SDK** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | OnlyOffice Embed SDK 运行时封装 + Markdown 文档源 |
+| **可发布 SDK** | [`packages/onlyoffice-embed-sdk/`](packages/onlyoffice-embed-sdk/) | `@agentbridges-ai/onlyoffice-embed-sdk` 包、构建与迁移说明 |
+| **共享实现** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | 编辑器、x2t、bridge、兼容层与 Markdown 文档源 |
 | **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start 文件路由 + Cloudflare Worker |
 
 ## 项目定位
 
-这个项目目前不是一个 `npm install` 后直接引入的包，而是一个浏览器端 OnlyOffice Embed SDK 集成模板：可复用的运行时代码在 `src/components/onlyoffice-web-comp/`，仓库同时包含这套运行时需要的 OnlyOffice SDK / x2t 静态资源。
+仓库同时包含私有演示/部署应用，以及独立可发布的 ESM 包 `@agentbridges-ai/onlyoffice-embed-sdk`。npm 包内包含编辑器生命周期、加固后的跨域 bridge 与自包含 x2t Worker；体积较大的 ONLYOFFICE SDK、x2t WASM 和字体仍作为独立运行时资源部署。
 
 如果你希望在自己的 Web 项目里接入 OnlyOffice，并且不想部署 OnlyOffice Document Server，可以把这里当作一套可复制的工程实现。演示站点也是项目的一部分，目的是让你直接参考一个已经跑通的编辑器生命周期，而不是只看零散 API 片段。
 
@@ -23,9 +24,11 @@
 
 实际接入可以按这个路径做：
 
-1. 复制 [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) 到你的项目源码目录，作为 OnlyOffice Embed SDK 运行时。
-2. 复制 [`public/packages/onlyoffice/`](public/packages/onlyoffice/) 静态资源到你的项目 `public/packages/onlyoffice/` 目录。
+1. 安装 `@agentbridges-ai/onlyoffice-embed-sdk` 并使用原生 manager API；从 `@agentbridges-ai/onlyoffice-browser` 迁移的应用使用独立 `/compat` 入口。
+2. 将 [`public/packages/onlyoffice/`](public/packages/onlyoffice/) 部署在应用同源路径或 CDN，并在首次创建编辑器前调用 `registerOnlyOfficeStaticResource`。
 3. 参考 [`src/features/demo/office-preview-page.tsx`](src/features/demo/office-preview-page.tsx) 构造自己的界面：准备编辑器容器，维护一个 `OnlyOfficeManager` 实例，按需调用 `openDocument`、`downloadExport`、`toggleReadOnly`，并在页面卸载时销毁 manager。需要从父页面调用编辑器 Automation API 时，可通过 `createConnector()` 获取 Developer Edition Connector。
+
+安装、CSP、兼容差异和发布约定详见 [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md)。
 
 静态资源读取统一在 [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) 配置。本地与 CDN 模式默认均读取 Developer Edition Docker 导出的 9.4 SDK：`/packages/onlyoffice/9.4.0-develop`；如 CDN 目录不同，可通过 `onlyofficeVersion` 覆盖。
 
@@ -83,13 +86,19 @@ pnpm dev
 | [多实例示例](src/components/onlyoffice-web-comp/docs/多实例示例.md) | Tab 多实例完整源码 |
 
 ```typescript
-import { OnlyOfficeManager, FILE_TYPE, ONLYOFFICE_ID } from "@/components/onlyoffice-web-comp";
+import {
+  OnlyOfficeManager,
+  FILE_TYPE,
+  ONLYOFFICE_ID,
+} from "@agentbridges-ai/onlyoffice-embed-sdk";
 ```
 
 ## 项目结构
 
 ```
 onlyoffice-web-comp/
+├── packages/
+│   └── onlyoffice-embed-sdk/             # 可发布 ESM 包
 ├── src/
 │   ├── app/                              # TanStack Start 文件路由
 │   │   ├── __root.tsx                    # HTML 壳与全局元数据

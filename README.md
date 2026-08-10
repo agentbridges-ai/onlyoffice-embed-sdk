@@ -10,22 +10,25 @@ This repository has two parts:
 
 | Part | Path | Description |
 |------|------|-------------|
-| **SDK** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | OnlyOffice Embed SDK runtime wrapper + Markdown docs |
+| **Publishable SDK** | [`packages/onlyoffice-embed-sdk/`](packages/onlyoffice-embed-sdk/) | `@agentbridges-ai/onlyoffice-embed-sdk` package, build, and migration guide |
+| **Shared implementation** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | Editor, x2t, bridge, compatibility facade, and Markdown docs |
 | **Demo site** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start file routes on a Cloudflare Worker |
 
 ## Project Positioning
 
-This project is not an npm package with a one-line install flow yet. It is a browser-only OnlyOffice Embed SDK integration template: the reusable runtime lives in `src/components/onlyoffice-web-comp/`, and this repository also includes the static OnlyOffice SDK / x2t assets required by that runtime.
+The repository contains a private demo/deployment application and a separate, publishable ESM package named `@agentbridges-ai/onlyoffice-embed-sdk`. The package bundles the editor lifecycle, hardened bridge, and x2t Worker code, while the large ONLYOFFICE SDK, x2t WASM, and font files remain separately deployed runtime assets.
 
 Use this project when you want to embed OnlyOffice editing into your own web app without running OnlyOffice Document Server. The demo site is intentionally part of the repository so you can copy a working integration instead of reconstructing the editor lifecycle from scattered snippets.
 
 ## Integrating into Your Project
 
-The practical integration path is:
+The package integration path is:
 
-1. Copy [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) into your application source tree as the OnlyOffice Embed SDK runtime.
-2. Copy the static assets from [`public/packages/onlyoffice/`](public/packages/onlyoffice/) into your app's `public/packages/onlyoffice/` directory.
+1. Install `@agentbridges-ai/onlyoffice-embed-sdk` and import its native manager API. Applications migrating from `@agentbridges-ai/onlyoffice-browser` use the explicit `/compat` entry.
+2. Host [`public/packages/onlyoffice/`](public/packages/onlyoffice/) on the application origin or a CDN, then call `registerOnlyOfficeStaticResource` before creating an editor.
 3. Build your UI by following [`src/features/demo/office-preview-page.tsx`](src/features/demo/office-preview-page.tsx): create an editor container, keep an `OnlyOfficeManager` instance, call `openDocument`, `downloadExport`, `toggleReadOnly`, and destroy the manager on unmount. To call the editor Automation API from the parent page, get a Developer Edition Connector with `createConnector()`.
+
+The package-specific installation, CSP, compatibility, and release details are in [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md).
 
 Static resource resolution is centralized in [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts). Both local and CDN modes use the Developer Edition Docker-exported 9.4 SDK at `/packages/onlyoffice/9.4.0-develop` by default; `onlyofficeVersion` can override the CDN directory when needed.
 
@@ -83,13 +86,19 @@ Legacy route `/examples` redirects to the single-instance demo; `/multi` redirec
 | [Multi-instance Demo](src/components/onlyoffice-web-comp/docs/多实例示例.md) | Full Tab demo source |
 
 ```typescript
-import { OnlyOfficeManager, FILE_TYPE, ONLYOFFICE_ID } from "@/components/onlyoffice-web-comp";
+import {
+  OnlyOfficeManager,
+  FILE_TYPE,
+  ONLYOFFICE_ID,
+} from "@agentbridges-ai/onlyoffice-embed-sdk";
 ```
 
 ## Project Structure
 
 ```
 onlyoffice-web-comp/
+├── packages/
+│   └── onlyoffice-embed-sdk/             # Publishable ESM package
 ├── src/
 │   ├── app/                              # TanStack Start file routes
 │   │   ├── __root.tsx                    # HTML shell and global metadata

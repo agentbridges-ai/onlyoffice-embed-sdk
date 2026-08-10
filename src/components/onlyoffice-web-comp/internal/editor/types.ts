@@ -8,6 +8,17 @@ export type OnlyOfficeConnectorOptions = {
   autoconnect?: boolean;
 };
 
+/**
+ * ONLYOFFICE plugin descriptors forwarded to editorConfig.plugins.
+ *
+ * URLs are resolved against the embedding page before they are handed to the
+ * editor so a CDN-hosted editor can still load application-owned plugins.
+ */
+export type OnlyOfficePluginOptions = {
+  configUrls: string[];
+  autostart?: string[];
+};
+
 /** Developer Edition Connector API 的稳定子集。 */
 export type OnlyOfficeConnector = {
   isConnected: boolean;
@@ -310,6 +321,11 @@ export type EditorDocumentSnapshot = {
   themes: Record<string, Uint8Array>;
 };
 
+/** Internal capture metadata sampled when the server accepts Editor.bin. */
+export type EditorCapturedDocumentSnapshot = EditorDocumentSnapshot & {
+  capturedDirtyRevision?: number;
+};
+
 export type OfficeXmlSizeLimitExceededPayload = {
   fileName: string;
   fileType: string;
@@ -342,8 +358,15 @@ export function isOfficeXmlSizeLimitExceededError(
   );
 }
 
+export type EditorDownloadOutput = {
+  kind: "save-as" | "download";
+  fileName: string;
+  fileType: string;
+  data: Uint8Array;
+};
+
 export interface ServerOptions {
-  getState?: () => { readOnly?: boolean };
+  getState?: () => { readOnly?: boolean; dirtyRevision?: number };
   logger?: EditorLogger;
   /** WOPI 重命名 RPC 成功后的回调，携带 SDK 最终采用的完整文件名。 */
   onDocumentRename?: (fileName: string) => void;
@@ -351,6 +374,12 @@ export interface ServerOptions {
    * @description 用户触发保存（非 export/downloadAs 导出）时回调，携带最新文档快照。
    */
   onUserSave?: (snapshot: EditorDocumentSnapshot) => void;
+  /**
+   * @description 原生 Save Copy As / Download As 完成后的文件输出。返回 true 时由接入层接管，服务端仅向 SDK 返回无下载 ACK。
+   */
+  onDownloadOutput?: (
+    output: EditorDownloadOutput,
+  ) => boolean | Promise<boolean>;
   /**
    * @description 文档异步加载失败时回调；open() 返回后 x2t 转换仍可能在 loadPromise 中失败。
    */

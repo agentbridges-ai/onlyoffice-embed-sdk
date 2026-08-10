@@ -1,0 +1,221 @@
+name: Publish SDK to npm
+
+# This workflow deliberately does not bootstrap the npm package or organization.
+# Before the first tagged release, an owner must publish a 0.0.0 placeholder
+# under the non-default `bootstrap` dist-tag, configure npm trusted publishing
+# for this exact workflow/environment, and protect `npm-production`. Never
+# bootstrap by manually publishing the real release version.
+on:
+  push:
+    tags:
+      - "sdk-v*"
+
+concurrency:
+  group: publish-onlyoffice-embed-sdk
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify signed release and build artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.release_tag.outputs.version }}
+    env:
+      CI: true
+      SDK_VERIFY_REQUIRE_BUN: "1"
+      SDK_VERIFY_TARBALL_DIR: ${{ runner.temp }}/verified-sdk-package
+
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a GitHub-verified signed annotated tag
+        id: release_tag
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const tagName = context.ref.replace("refs/tags/", "");
+            const prefix = "sdk-v";
+            if (!tagName.startsWith(prefix)) {
+              core.setFailed(`Release tag must start with ${prefix}`);
+              return;
+            }
+
+            const tagRef = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${tagName}`,
+            });
+            if (tagRef.data.object.type !== "tag") {
+              core.setFailed("Release tag must be an annotated, signed tag; lightweight tags are rejected");
+              return;
+            }
+
+            const tag = await github.rest.git.getTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_sha: tagRef.data.object.sha,
+            });
+            if (!tag.data.verification?.verified) {
+              core.setFailed(`GitHub did not verify the tag signature: ${tag.data.verification?.reason ?? "unknown reason"}`);
+              return;
+            }
+            if (tag.data.object.type !== "commit") {
+              core.setFailed("Release tag must point directly to a commit");
+              return;
+            }
+
+            const version = tagName.slice(prefix.length);
+            if (!/^\d+\.\d+\.\d+$/.test(version)) {
+              core.setFailed(`Release tags must contain a stable x.y.z version: ${version}`);
+              return;
+            }
+            core.setOutput("version", version);
+            core.setOutput("commit", tag.data.object.sha);
+
+      - name: Require tagged commit on main
+        env:
+          TAG_COMMIT: ${{ steps.release_tag.outputs.commit }}
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$TAG_COMMIT"
+          git merge-base --is-ancestor "$TAG_COMMIT" refs/remotes/origin/main
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.13.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run focused runtime regressions
+        run: >-
+          pnpm exec playwright test
+          tests/e2e/specs/runtime-regressions.spec.ts
+          tests/e2e/specs/onlyoffice-assets.spec.ts
+          tests/e2e/specs/onlyoffice-factory.spec.ts
+
+      - name: Match package version to release tag
+        env:
+          RELEASE_VERSION: ${{ steps.release_tag.outputs.version }}
+        run: |
+          PACKAGE_VERSION="$(node --print "require('./packages/onlyoffice-embed-sdk/package.json').version")"
+          test "$PACKAGE_VERSION" = "$RELEASE_VERSION"
+
+      - name: Require npm bootstrap and a new version
+        env:
+          RELEASE_VERSION: ${{ steps.release_tag.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFile } from "node:fs/promises";
+
+          const packageJson = JSON.parse(
+            await readFile("packages/onlyoffice-embed-sdk/package.json", "utf8"),
+          );
+          assert.equal(packageJson.version, process.env.RELEASE_VERSION);
+
+          const registryUrl = `https://registry.npmjs.org/${encodeURIComponent(packageJson.name)}`;
+          const response = await fetch(registryUrl, {
+            headers: { accept: "application/vnd.npm.install-v1+json" },
+          });
+          if (response.status === 404) {
+            throw new Error(
+              `${packageJson.name} is not bootstrapped on npm. Publish only a 0.0.0 placeholder with --tag bootstrap, then configure trusted publishing; do not manually publish ${packageJson.version}.`,
+            );
+          }
+          if (!response.ok) {
+            throw new Error(`npm registry returned ${response.status} for ${packageJson.name}`);
+          }
+
+          const metadata = await response.json();
+          if (Object.hasOwn(metadata.versions ?? {}, packageJson.version)) {
+            throw new Error(`${packageJson.name}@${packageJson.version} already exists on npm`);
+          }
+
+          const parseStableVersion = (value) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value ?? "");
+            return match ? match.slice(1).map(Number) : null;
+          };
+          const latest = metadata["dist-tags"]?.latest;
+          const currentParts = parseStableVersion(packageJson.version);
+          const latestParts = parseStableVersion(latest);
+          if (latestParts && currentParts) {
+            const comparison = currentParts.findIndex(
+              (part, index) => part !== latestParts[index],
+            );
+            if (
+              comparison === -1 ||
+              currentParts[comparison] < latestParts[comparison]
+            ) {
+              throw new Error(
+                `${packageJson.version} must be greater than the current latest version ${latest}`,
+              );
+            }
+          }
+          NODE
+
+      - name: Build, pack, and verify the publish artifact
+        id: verify
+        run: node scripts/verify-sdk-package.mjs
+
+      - name: Upload verified publish artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-onlyoffice-embed-sdk
+          path: ${{ steps.verify.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish verified artifact with npm OIDC
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Use npm with trusted publishing support
+        run: npm install --global npm@11.19.0
+
+      - name: Download verified publish artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-onlyoffice-embed-sdk
+          path: verified-sdk-package
+
+      - name: Publish verified tarball with npm trusted publishing
+        run: >-
+          npm publish
+          "verified-sdk-package/agentbridges-ai-onlyoffice-embed-sdk-${{ needs.verify.outputs.version }}.tgz"
+          --access public
+          --provenance

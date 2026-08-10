@@ -14,6 +14,7 @@ import {
   onlyOfficeManagerFactory,
   onlyofficeEventbus,
 } from "@/components/onlyoffice-web-comp";
+import { mountOfficeEditor } from "@/components/onlyoffice-web-comp/compat/editor";
 import { converter } from "@/components/onlyoffice-web-comp/internal/editor/x2t";
 import { getScopedIoRegistry } from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
 import { getX2tConvertFormats } from "@/components/onlyoffice-web-comp/internal/editor/utils";
@@ -25,6 +26,7 @@ import type {
 } from "./onlyoffice-factory.contract";
 
 export const CONTAINER_IDS = {
+  plugin: "e2e-plugin-editor",
   factory: "e2e-factory-editor",
   concurrent: "e2e-concurrent-editor",
   create: "e2e-create-editor",
@@ -35,6 +37,8 @@ export const CONTAINER_IDS = {
 } as const;
 
 const DOCUMENT_READY_TIMEOUT_MS = 30_000;
+const NEXOLYRA_PLUGIN_GUID =
+  "asc.{E2E4D0B6-6F1E-4B80-9A4D-8F6B1C2D3E40}";
 
 declare const Api: {
   GetActiveSheet: () => {
@@ -306,6 +310,77 @@ export async function runScenario(
       `Unexpected SDK root: ${STATIC_RESOURCE.onlyoffice.root}`,
     );
     return mode === "cdn" ? cdnOrigin : "local packages";
+  });
+
+  await runStep("CDN Nexolyra plugin READY", async () => {
+    if (mode !== "cdn") return "covered by the CDN scenario";
+
+    const container = document.getElementById(CONTAINER_IDS.plugin);
+    assert(container instanceof HTMLElement, "Missing plugin editor container");
+
+    let resolvePluginReady!: (value: {
+      pluginGuid: string;
+      editorType: string;
+    }) => void;
+    const pluginReady = new Promise<{
+      pluginGuid: string;
+      editorType: string;
+    }>((resolve) => {
+      resolvePluginReady = resolve;
+    });
+    const mount = mountOfficeEditor(container, {
+      hostUrl: "https://plugin-host.example.test/office-host.html",
+      emptyType: "docx",
+      plugins: {
+        configUrls: ["/e2e/nexolyra-plugin/config.json"],
+        autostart: [NEXOLYRA_PLUGIN_GUID],
+      },
+      onPluginReady(pluginGuid, editorType) {
+        resolvePluginReady({ pluginGuid, editorType });
+      },
+    });
+
+    let timeoutId = 0;
+    try {
+      const instance = await mount.activate();
+      const ready = await Promise.race([
+        pluginReady,
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = window.setTimeout(
+            () => reject(new Error("CDN background plugin did not post READY")),
+            DOCUMENT_READY_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      assert(
+        ready.pluginGuid === NEXOLYRA_PLUGIN_GUID &&
+          ready.editorType === "word",
+        `Unexpected plugin READY: ${ready.pluginGuid}/${ready.editorType}`,
+      );
+
+      const result = (await instance.invokePlugin(NEXOLYRA_PLUGIN_GUID, {
+        type: "ping",
+      })) as {
+        pong?: boolean;
+        editorType?: string;
+        bridgeHostIsTop?: boolean;
+        entryPath?: string;
+      };
+      assert(result.pong === true, "Plugin INVOKE did not reach the fixture");
+      assert(
+        result.editorType === "word" && result.bridgeHostIsTop === true,
+        "Plugin did not use the Nexolyra window.parent.parent bridge",
+      );
+      assert(
+        result.entryPath === "/e2e/nexolyra-plugin/index.html",
+        `Relative plugin entry was not resolved to the embed origin: ${result.entryPath}`,
+      );
+      return `${ready.editorType} READY + INVOKE/RESULT`;
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      await mount.destroy();
+      editorManagerFactory.destroy(container);
+    }
   });
 
   await runStep("manager factory concurrent open", async () => {
@@ -902,6 +977,7 @@ export function OnlyOfficeFactoryE2EPage() {
       </section>
 
       <div className="grid gap-4">
+        <OnlyOfficeTestEditor containerId={CONTAINER_IDS.plugin} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.factory} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.concurrent} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.create} />

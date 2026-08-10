@@ -9,8 +9,12 @@ import {
   unregisterCrossOriginBridge,
 } from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
 import io from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
-import { EditorManager } from "@/components/onlyoffice-web-comp/core/editor-manager";
 import {
+  EditorManager,
+  editorManagerFactory,
+} from "@/components/onlyoffice-web-comp/core/editor-manager";
+import {
+  AscSaveTypes,
   AvsFileType,
   type X2tConvertParams,
   type X2tConvertResult,
@@ -20,9 +24,22 @@ import {
   getX2tExportFormats,
 } from "@/components/onlyoffice-web-comp/internal/editor/utils";
 import {
+  converter,
   X2tConversionError,
   X2tConverter,
 } from "@/components/onlyoffice-web-comp/internal/editor/x2t";
+import {
+  OfficeHostIdentityMismatchError,
+  OfficeHostIsolationError,
+  ONLYOFFICE_EMBED_SDK_VERSION,
+  createOfficeRuntimeResourceManager,
+  mountOfficeEditor,
+  registerOnlyOfficeStaticResource,
+  resetOnlyOfficeStaticResource,
+  resolveOfficeEmbedHostIdentity,
+} from "@/components/onlyoffice-web-comp/compat";
+import { OfficePluginBridge } from "@/components/onlyoffice-web-comp/compat/plugin-bridge";
+import { OfficeRuntimeResourceCompatibilityError } from "@/components/onlyoffice-web-comp/compat/runtime-resources";
 
 type RegressionStep = {
   name: string;
@@ -697,6 +714,171 @@ async function testBridgeLifecycleRaces() {
   }
 }
 
+async function testPluginConfigProxyAllowlist() {
+  const frameEditorId = `plugin-config-proxy-${Date.now()}`;
+  const iframe = document.createElement("iframe");
+  iframe.name = "frameEditor";
+  iframe.hidden = true;
+  iframe.src = `${window.location.origin}/plugin-proxy-harness?frameEditorId=${frameEditorId}`;
+  iframe.srcdoc = "<!doctype html><title>plugin proxy harness</title>";
+  const loaded = new Promise<void>((resolve) => {
+    iframe.addEventListener("load", () => resolve(), { once: true });
+  });
+  document.body.appendChild(iframe);
+  await loaded;
+
+  const childWindow = iframe.contentWindow;
+  assert(childWindow, "plugin proxy iframe has no contentWindow");
+  const postedMessages: Array<Record<string, unknown>> = [];
+  const captureMessage = (event: MessageEvent) => {
+    if (event.data && typeof event.data === "object") {
+      postedMessages.push(event.data as Record<string, unknown>);
+    }
+  };
+  childWindow.addEventListener("message", captureMessage);
+
+  const sourceUrl =
+    "https://app.example.test/plugin-bundles/demo/config.json?build=1";
+  const nativeFetch = window.fetch;
+  const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    fetchCalls.push({ url, init });
+    if (url !== sourceUrl) {
+      throw new Error(`unexpected plugin config fetch: ${url}`);
+    }
+    return new Response(
+      JSON.stringify({
+        name: "Regression plugin",
+        guid: "asc.{PLUGIN-PROXY-REGRESSION}",
+        baseUrl: "./",
+        icons: ["icons/plugin.svg"],
+        variations: [
+          {
+            url: "ui/index.html",
+            icons: [
+              "icons/light.svg",
+              { dark: "../shared/dark.svg" },
+            ],
+          },
+        ],
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const manager = new EditorManager(frameEditorId);
+  const server = (manager as any).server;
+  const bridgeInstanceId = "plugin-proxy-instance";
+  const dispatchBridgeMessage = (data: Record<string, unknown>) => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          source: "onlyoffice-bridge",
+          frameEditorId,
+          bridgeInstanceId,
+          ...data,
+        },
+        origin: window.location.origin,
+        source: childWindow,
+      }),
+    );
+  };
+
+  try {
+    assert(
+      registerCrossOriginBridge(
+        frameEditorId,
+        iframe,
+        server,
+        () => io(undefined, { deferConnect: true }),
+        iframe,
+        [sourceUrl],
+      ),
+      "plugin config bridge registration failed",
+    );
+    dispatchBridgeMessage({ type: "hello" });
+    await waitFor(() =>
+      postedMessages.find((message) => message.type === "hello:ack"),
+    );
+
+    const allowedRequestId = "allowed-plugin-config";
+    dispatchBridgeMessage({
+      type: "http",
+      requestId: allowedRequestId,
+      method: "GET",
+      url: sourceUrl,
+      responseType: "text",
+    });
+    const allowedResponse = await waitFor(() =>
+      postedMessages.find(
+        (message) =>
+          message.type === "http:response" &&
+          message.requestId === allowedRequestId,
+      ),
+    );
+    assert(allowedResponse.status === 200, "allowed plugin config was rejected");
+    assert(fetchCalls.length === 1, "plugin config was not fetched exactly once");
+    assert(fetchCalls[0]!.url === sourceUrl, "bridge fetched a different URL");
+    assert(
+      fetchCalls[0]!.init?.credentials === "same-origin" &&
+        fetchCalls[0]!.init?.redirect === "error",
+      "plugin config fetch did not use strict parent fetch options",
+    );
+
+    const config = JSON.parse(String(allowedResponse.responseBody)) as {
+      baseUrl: string;
+      icons: string[];
+      variations: Array<{
+        url: string;
+        icons: Array<string | { dark: string }>;
+      }>;
+    };
+    assert(
+      config.baseUrl === "./" &&
+        config.icons[0] === "icons/plugin.svg" &&
+        config.variations[0]?.url === "ui/index.html" &&
+        config.variations[0]?.icons[0] === "icons/light.svg" &&
+        (config.variations[0]?.icons[1] as { dark: string }).dark ===
+          "../shared/dark.svg",
+      "bridge changed relative plugin config URLs",
+    );
+
+    const forgedUrl = new URL(sourceUrl);
+    forgedUrl.searchParams.set("build", "forged");
+    const rejectedRequestId = "forged-plugin-config";
+    dispatchBridgeMessage({
+      type: "http",
+      requestId: rejectedRequestId,
+      method: "GET",
+      url: forgedUrl.href,
+      responseType: "text",
+    });
+    const rejectedResponse = await waitFor(() =>
+      postedMessages.find(
+        (message) =>
+          message.type === "http:response" &&
+          message.requestId === rejectedRequestId,
+      ),
+    );
+    assert(
+      rejectedResponse.status === 403 && fetchCalls.length === 1,
+      "forged plugin config URL escaped the exact allowlist",
+    );
+  } finally {
+    window.fetch = nativeFetch;
+    childWindow.removeEventListener("message", captureMessage);
+    unregisterCrossOriginBridge(frameEditorId, iframe);
+    manager.destroy();
+    iframe.remove();
+  }
+}
+
 async function testEditorBinDetection() {
   for (const [signature, fileType] of [
     ["DOCY;v5", "docx"],
@@ -721,13 +903,853 @@ async function testEditorBinDetection() {
   );
 }
 
+async function testCompatibilityFacadeContracts() {
+  const containerId = `compat-container-${Date.now()}`;
+  const firstContainer = document.createElement("div");
+  const duplicateContainer = document.createElement("div");
+  firstContainer.id = containerId;
+  duplicateContainer.id = containerId;
+  document.body.append(firstContainer, duplicateContainer);
+
+  const options = {
+    hostUrl: "https://host.example/office-host.html",
+    emptyType: "docx" as const,
+  };
+  const firstMount = mountOfficeEditor(firstContainer, options);
+  let duplicateError: unknown;
+  try {
+    mountOfficeEditor(duplicateContainer, options);
+  } catch (error) {
+    duplicateError = error;
+  }
+  assert(
+    duplicateError instanceof OfficeHostIsolationError,
+    "compat facade allowed two active editors to share a container id",
+  );
+  await firstMount.destroy();
+
+  const replacementMount = mountOfficeEditor(duplicateContainer, options);
+  await replacementMount.destroy();
+  firstContainer.remove();
+  duplicateContainer.remove();
+
+  const identityContainer = document.createElement("div");
+  document.body.appendChild(identityContainer);
+  let identityError: unknown;
+  const identityMount = mountOfficeEditor(identityContainer, {
+    ...options,
+    expectedHostIdentity: {
+      packageVersion: "0.0.0",
+      hostBuildId: "wrong-host",
+      assetManifestDigest: "wrong-assets",
+    },
+    onError() {
+      throw new Error("consumer onError failed");
+    },
+  });
+  try {
+    await identityMount.activate();
+  } catch (error) {
+    identityError = error;
+  }
+  assert(
+    identityError instanceof OfficeHostIdentityMismatchError,
+    "compat facade replaced the startup error with a consumer callback error",
+  );
+  const postFailureMount = mountOfficeEditor(identityContainer, options);
+  await postFailureMount.destroy();
+  await identityMount.destroy();
+  identityContainer.remove();
+
+  const resources = await createOfficeRuntimeResourceManager({
+    fetch: async () => new Response(new Uint8Array([1])),
+  });
+  assert(
+    resources.getSnapshot().packageVersion === ONLYOFFICE_EMBED_SDK_VERSION,
+    "resource facade package identity drifted from the SDK version",
+  );
+  let resourceError: unknown;
+  try {
+    resources.remainingBytes();
+  } catch (error) {
+    resourceError = error;
+  }
+  assert(
+    resourceError instanceof OfficeRuntimeResourceCompatibilityError,
+    "resource facade silently claimed an offline installation size",
+  );
+
+  const trustedManifestDigest = "ab".repeat(32);
+  registerOnlyOfficeStaticResource({
+    assetManifestDigest: trustedManifestDigest,
+  });
+  try {
+    assert(
+      (await resolveOfficeEmbedHostIdentity()).assetManifestDigest ===
+        trustedManifestDigest,
+      "compat identity ignored the deployment-provided manifest digest",
+    );
+  } finally {
+    resetOnlyOfficeStaticResource();
+  }
+
+  const editorFrame = document.createElement("iframe");
+  const siblingFrame = document.createElement("iframe");
+  document.body.append(editorFrame, siblingFrame);
+  const pluginFrame = editorFrame.contentDocument!.createElement("iframe");
+  const siblingPluginFrame =
+    siblingFrame.contentDocument!.createElement("iframe");
+  editorFrame.contentDocument!.body.appendChild(pluginFrame);
+  siblingFrame.contentDocument!.body.appendChild(siblingPluginFrame);
+  const pluginWindow = pluginFrame.contentWindow!;
+  const siblingPluginWindow = siblingPluginFrame.contentWindow!;
+  const pluginGuid = "asc.{COMPAT-REGRESSION}";
+  let readyCount = 0;
+  const pluginBridge = new OfficePluginBridge(window, {
+    // A configUrls-discovered plugin is trusted through its manifest origin;
+    // it does not need to appear in plugins.autostart.
+    pluginGuids: [],
+    pluginOrigins: new Map([[pluginGuid, [window.location.origin]]]),
+    isAllowedSource: (source) => source.parent === editorFrame.contentWindow,
+    onReady: () => {
+      readyCount += 1;
+    },
+  });
+  const readyMessage = {
+    protocol: "onlyoffice-browser-plugin/v1",
+    type: "READY",
+    pluginGuid,
+    pluginInstanceId: "plugin-instance",
+    editorType: "word",
+  } as const;
+  try {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: readyMessage,
+        origin: "https://forged-plugin.example",
+        source: pluginWindow,
+      }),
+    );
+    assert(readyCount === 0, "wrong-origin plugin claimed the bridge");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: readyMessage,
+        origin: window.location.origin,
+        source: siblingPluginWindow,
+      }),
+    );
+    assert(readyCount === 0, "same-origin sibling claimed the plugin bridge");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: readyMessage,
+        origin: window.location.origin,
+        source: pluginWindow,
+      }),
+    );
+    assert(Number(readyCount) === 1, "owned plugin READY was rejected");
+
+    let invokeMessage: Record<string, unknown> | undefined;
+    pluginWindow.addEventListener(
+      "message",
+      (event) => {
+        invokeMessage = event.data as Record<string, unknown>;
+      },
+      { once: true },
+    );
+    const invocation = pluginBridge.invoke(pluginGuid, { operation: "ping" });
+    let invocationSettled = false;
+    void invocation.then(
+      () => {
+        invocationSettled = true;
+      },
+      () => {
+        invocationSettled = true;
+      },
+    );
+    await waitFor(() => invokeMessage);
+    assert(
+      invokeMessage?.type === "INVOKE" &&
+        typeof invokeMessage.requestId === "string",
+      "plugin bridge did not send a bound invocation",
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          protocol: "onlyoffice-browser-plugin/v1",
+          type: "RESULT",
+          pluginGuid,
+          pluginInstanceId: "forged-plugin-instance",
+          requestId: invokeMessage.requestId,
+          ok: true,
+          result: "forged",
+        },
+        origin: window.location.origin,
+        source: pluginWindow,
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          protocol: "onlyoffice-browser-plugin/v1",
+          type: "RESULT",
+          pluginGuid,
+          pluginInstanceId: "plugin-instance",
+          requestId: invokeMessage.requestId,
+          ok: true,
+          result: "forged",
+        },
+        origin: "https://forged-plugin.example",
+        source: pluginWindow,
+      }),
+    );
+    await delay(0);
+    assert(
+      !invocationSettled,
+      "wrong-origin or wrong-instance plugin completed an invocation",
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          protocol: "onlyoffice-browser-plugin/v1",
+          type: "RESULT",
+          pluginGuid,
+          pluginInstanceId: "plugin-instance",
+          requestId: invokeMessage.requestId,
+          ok: true,
+          result: "pong",
+        },
+        origin: window.location.origin,
+        source: pluginWindow,
+      }),
+    );
+    assert((await invocation) === "pong", "plugin result routing failed");
+  } finally {
+    pluginBridge.destroy();
+    editorFrame.remove();
+    siblingFrame.remove();
+  }
+}
+
+async function testCompatibilityNativeOutputCallbacks() {
+  const popup = window.open(
+    "about:blank",
+    `onlyoffice-native-output-${Date.now()}`,
+    "popup,width=640,height=480",
+  );
+  assert(popup, "native-output popup Window was blocked");
+
+  const container = popup.document.createElement("div");
+  container.id = `native-output-host-${Date.now()}`;
+  popup.document.body.appendChild(container);
+
+  type FakeEditorConfig = {
+    events?: {
+      onDocumentReady?: () => void;
+      onDocumentStateChange?: (event: { data: boolean }) => void;
+    };
+  };
+  let dispatchDocumentStateChange:
+    | ((event: { data: boolean }) => void)
+    | undefined;
+  let handleDownloadAs: ((format: string) => void) | undefined;
+
+  class FakeDocEditor {
+    static version() {
+      return "native-output-fake";
+    }
+
+    private readonly iframe: HTMLIFrameElement;
+
+    constructor(id: string | undefined, config: FakeEditorConfig) {
+      const host = popup.document.getElementById(id ?? "");
+      if (!host) throw new Error("fake DocsAPI received the wrong container");
+      this.iframe = popup.document.createElement("iframe");
+      this.iframe.name = "frameEditor";
+      this.iframe.srcdoc = "<!doctype html><title>fake editor</title>";
+      host.appendChild(this.iframe);
+      dispatchDocumentStateChange = config.events?.onDocumentStateChange;
+      popup.setTimeout(() => config.events?.onDocumentReady?.(), 0);
+    }
+
+    downloadAs(format: string) {
+      handleDownloadAs?.(format);
+    }
+
+    destroyEditor() {
+      this.iframe.remove();
+    }
+  }
+
+  popup.DocsAPI = {
+    DocEditor: FakeDocEditor as unknown as DocEditorConstructor,
+  };
+
+  const savedFiles: File[] = [];
+  const saveAsFiles: File[] = [];
+  const downloadedFiles: File[] = [];
+  const callbackErrors: Error[] = [];
+  const dirtyChanges: boolean[] = [];
+  let callbackInstance: unknown;
+  let rejectProgrammaticSave = false;
+  let blockProgrammaticSave = false;
+  let resolveBlockedSave: (() => void) | undefined;
+  const mount = mountOfficeEditor(container, {
+    hostUrl: "https://host.example/office-host.html",
+    emptyType: "docx",
+    saveBehavior: "callback",
+    async onSave(file, instance) {
+      savedFiles.push(file);
+      callbackInstance = instance;
+      if (rejectProgrammaticSave) {
+        throw new Error("programmatic persistence failed");
+      }
+      if (blockProgrammaticSave) {
+        await new Promise<void>((resolve) => {
+          resolveBlockedSave = resolve;
+        });
+      }
+      return true;
+    },
+    onSaveAs(file, instance) {
+      saveAsFiles.push(file);
+      callbackInstance = instance;
+      throw new Error("save-as persistence failed");
+    },
+    onDownload(file, instance) {
+      downloadedFiles.push(file);
+      callbackInstance = instance;
+    },
+    onError(error) {
+      callbackErrors.push(error);
+    },
+    onDirtyChange(dirty) {
+      dirtyChanges.push(dirty);
+    },
+  });
+
+  const originalConverterConvert = converter.convert;
+  let converterPatched = false;
+  let instance: Awaited<ReturnType<typeof mount.activate>> | undefined;
+  try {
+    instance = await mount.activate();
+    const manager = editorManagerFactory.get(container);
+    type CompatSnapshot = {
+      fileName: string;
+      fileType: string;
+      binData?: Uint8Array;
+      media: Record<string, Uint8Array>;
+      themes: Record<string, Uint8Array>;
+      capturedDirtyRevision?: number;
+    };
+    type CompatServer = {
+      getDocument(): { key: string };
+      handleRequest(request: Request): Promise<Response>;
+      captureCurrentDocument(
+        trigger: () => void,
+        timeout?: number,
+      ): Promise<CompatSnapshot>;
+      getDocumentSnapshot(): CompatSnapshot;
+      registerSocketTransport(socket: ReturnType<typeof io>): void;
+    };
+    const server = (
+      manager as unknown as { server: CompatServer }
+    ).server;
+    const documentKey = server.getDocument().key;
+    const socket = io(undefined, { deferConnect: true });
+    const serverMessages: Array<Record<string, unknown>> = [];
+    socket.on("message", (message: Record<string, unknown>) => {
+      serverMessages.push(message);
+    });
+    server.registerSocketTransport(socket);
+
+    const postDownloadAs = (
+      cmd: Record<string, unknown>,
+      bytes: Uint8Array,
+    ) => {
+      const url = new URL(
+        `/downloadas/${documentKey}`,
+        "https://runtime.test",
+      );
+      url.searchParams.set("cmd", JSON.stringify(cmd));
+      return server.handleRequest(
+        new Request(url, {
+          method: "POST",
+          body: bytes.slice().buffer,
+        }),
+      );
+    };
+    const waitForSaveMessage = (after: number) =>
+      waitFor(() =>
+        serverMessages.slice(after).find((message) => {
+          const data = message.data as Record<string, unknown> | undefined;
+          return message.type === "documentOpen" && data?.type === "save";
+        }),
+      );
+    const assertAck = (message: Record<string, unknown>, label: string) => {
+      const data = message.data as Record<string, unknown>;
+      assert(
+        data.status === "ok" && data.data === "onlyoffice://export/ack",
+        `${label} did not suppress the native browser download`,
+      );
+    };
+
+    const PopupFile = (popup as Window & { File: typeof File }).File;
+    const programmaticFile = new PopupFile(
+      [Uint8Array.from([1, 2, 3])],
+      "programmatic.docx",
+    );
+    await (
+      instance as unknown as {
+        persistSavedFile(file: File): Promise<void>;
+      }
+    ).persistSavedFile(programmaticFile);
+    assert(
+      savedFiles.length === 1 &&
+        saveAsFiles.length === 0 &&
+        downloadedFiles.length === 0 &&
+        callbackInstance === instance,
+      "programmatic save persistence escaped the onSave channel",
+    );
+
+    const saveAsBytes = Uint8Array.from([11, 12, 13]);
+    const beforeSaveAs = serverMessages.length;
+    const exportSnapshotPromise = server.captureCurrentDocument(
+      () => {},
+      1_000,
+    );
+    const saveAsResponse = await postDownloadAs(
+      {
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_DOCUMENT_ODT,
+        title: "copy.odt",
+        isSaveAs: true,
+      },
+      saveAsBytes,
+    );
+    assert(saveAsResponse.ok, "Save Copy As request failed after callback error");
+    assertAck(await waitForSaveMessage(beforeSaveAs), "Save Copy As");
+    assert(
+      Number(saveAsFiles.length) === 1 &&
+        saveAsFiles[0]!.name === "copy.odt" &&
+        saveAsFiles[0] instanceof PopupFile &&
+        downloadedFiles.length === 0 &&
+        savedFiles.length === 1,
+      "Save Copy As did not route exclusively to onSaveAs",
+    );
+    assert(
+      callbackErrors.length === 1 &&
+        callbackErrors[0]!.message === "save-as persistence failed" &&
+        instance.getState().status === "ready",
+      "Save Copy As callback failure broke the editor lifecycle",
+    );
+
+    const downloadBytes = Uint8Array.from([21, 22, 23]);
+    const beforeDownload = serverMessages.length;
+    const downloadResponse = await postDownloadAs(
+      {
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_DOCUMENT_RTF,
+        title: "download.rtf",
+      },
+      downloadBytes,
+    );
+    assert(downloadResponse.ok, "Download As request failed");
+    assertAck(await waitForSaveMessage(beforeDownload), "Download As");
+    assert(
+      Number(downloadedFiles.length) === 1 &&
+        downloadedFiles[0]!.name === "download.rtf" &&
+        downloadedFiles[0] instanceof PopupFile &&
+        Number(saveAsFiles.length) === 1 &&
+        savedFiles.length === 1 &&
+        callbackInstance === instance,
+      "Download As did not route exclusively to onDownload",
+    );
+    assert(
+      Array.from(new Uint8Array(await downloadedFiles[0]!.arrayBuffer())).join(
+        ",",
+      ) === Array.from(downloadBytes).join(","),
+      "Download As callback received corrupted output bytes",
+    );
+
+    const sameFormatDownloadBytes = Uint8Array.from([31, 32, 33]);
+    const beforeSameFormatDownload = serverMessages.length;
+    const sameFormatDownloadResponse = await postDownloadAs(
+      {
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+        title: "download-copy.docx",
+      },
+      sameFormatDownloadBytes,
+    );
+    assert(sameFormatDownloadResponse.ok, "same-format Download As failed");
+    assertAck(
+      await waitForSaveMessage(beforeSameFormatDownload),
+      "same-format Download As",
+    );
+    assert(
+      Number(downloadedFiles.length) === 2 &&
+        downloadedFiles[1]!.name === "download-copy.docx" &&
+        Array.from(
+          new Uint8Array(await downloadedFiles[1]!.arrayBuffer()),
+        ).join(",") === Array.from(sameFormatDownloadBytes).join(","),
+      "same-format non-Editor.bin output consumed the pending export",
+    );
+
+    const beforeExport = serverMessages.length;
+    const exportRequest = postDownloadAs(
+      {
+        c: "save",
+        savetype: AscSaveTypes.CompleteAll,
+        // DocsAPI 9.4 sends the open document format here even when the
+        // caller requested downloadAs("bin").
+        outputformat: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+        title: "New_Document.docx",
+        nobase64: true,
+        isSaveAs: true,
+        saveAsPath: null,
+      },
+      new TextEncoder().encode("DOCY;v5;compat-export"),
+    );
+    const [exportSnapshot] = await Promise.all([
+      exportSnapshotPromise,
+      exportRequest,
+    ]);
+    assert(
+      exportSnapshot.binData?.byteLength &&
+        Number(saveAsFiles.length) === 1 &&
+        Number(downloadedFiles.length) === 2,
+      "native output consumed the pending programmatic export",
+    );
+    assertAck(
+      await waitForSaveMessage(beforeExport),
+      "real-shape programmatic export after native output",
+    );
+
+    converter.convert = async (params) => ({
+      output: new Uint8Array(params.data.slice(0)),
+      media: {},
+    });
+    converterPatched = true;
+
+    assert(
+      dispatchDocumentStateChange,
+      "fake editor did not expose document dirty events",
+    );
+    dispatchDocumentStateChange({ data: true });
+    await waitFor(() => instance?.getState().dirty === true);
+
+    let signalCaptureStarted: (() => void) | undefined;
+    const captureStarted = new Promise<void>((resolve) => {
+      signalCaptureStarted = resolve;
+    });
+    const requestedDownloadFormats: string[] = [];
+    handleDownloadAs = (format) => {
+      requestedDownloadFormats.push(format);
+      signalCaptureStarted?.();
+    };
+    const originalCaptureCurrentDocument =
+      server.captureCurrentDocument.bind(server);
+    let signalSnapshotAccepted: (() => void) | undefined;
+    const snapshotAccepted = new Promise<void>((resolve) => {
+      signalSnapshotAccepted = resolve;
+    });
+    let releaseSnapshotToManager: (() => void) | undefined;
+    const snapshotReturnGate = new Promise<void>((resolve) => {
+      releaseSnapshotToManager = resolve;
+    });
+    server.captureCurrentDocument = async (trigger, timeout) => {
+      const snapshot = await originalCaptureCurrentDocument(trigger, timeout);
+      signalSnapshotAccepted?.();
+      await snapshotReturnGate;
+      return snapshot;
+    };
+    const captureDirtyChangeStart = dirtyChanges.length;
+    const captureWindowSave = instance.save("odt");
+    await captureStarted;
+    assert(
+      requestedDownloadFormats.length === 1 &&
+        requestedDownloadFormats[0] === "bin",
+      "manager export did not request an Editor.bin capture",
+    );
+
+    const beforeCaptureResolution = serverMessages.length;
+    const captureResolutionPromise = postDownloadAs(
+      {
+        c: "save",
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+        title: "New_Document.docx",
+        nobase64: true,
+        isSaveAs: true,
+        saveAsPath: null,
+      },
+      new TextEncoder().encode("DOCY;v5;capture-window-export"),
+    );
+    await snapshotAccepted;
+
+    // The server has accepted the snapshot bytes and sampled their revision,
+    // but manager.export has not received the snapshot yet. This edit belongs
+    // to a newer revision and must survive both manager settlement and the
+    // subsequent successful external onSave callback.
+    dispatchDocumentStateChange({ data: true });
+    await delay(150);
+    assert(
+      instance.getState().dirty &&
+        !dirtyChanges.slice(captureDirtyChangeStart).includes(false),
+      "capture-pending edit emitted a transient clean state before resolution",
+    );
+
+    releaseSnapshotToManager?.();
+    const captureResolution = await captureResolutionPromise;
+    assert(captureResolution.ok, "capture-window export request failed");
+    assertAck(
+      await waitForSaveMessage(beforeCaptureResolution),
+      "capture-window programmatic export",
+    );
+    await captureWindowSave;
+    handleDownloadAs = undefined;
+    server.captureCurrentDocument = originalCaptureCurrentDocument;
+    await delay(250);
+    assert(
+      Number(savedFiles.length) === 2 &&
+        instance.getState().dirty &&
+        !dirtyChanges.slice(captureDirtyChangeStart).includes(false),
+      "a newer edit was cleared after capture and successful onSave",
+    );
+
+    (manager as unknown as { export: () => Promise<unknown> }).export =
+      async () => {
+        (manager as unknown as { dirty: boolean }).dirty = false;
+        const snapshot = server.getDocumentSnapshot();
+        if (!snapshot.binData) {
+          throw new Error("compat regression snapshot is missing Editor.bin");
+        }
+        return {
+          ...snapshot,
+          binData: snapshot.binData,
+          instanceId: manager.getInstanceId(),
+        };
+      };
+    rejectProgrammaticSave = true;
+    const failedSave = await instance.save().catch((error) => error);
+    assert(
+      failedSave instanceof Error &&
+        failedSave.message === "programmatic persistence failed",
+      "programmatic onSave rejection was not returned to the caller",
+    );
+    await delay(250);
+    assert(
+      instance.getState().dirty,
+      "failed programmatic persistence lost its dirty latch after polling",
+    );
+
+    rejectProgrammaticSave = false;
+    const originalState = instance.getState();
+    blockProgrammaticSave = true;
+    const dirtyChangeStart = dirtyChanges.length;
+    const pendingSave = instance.save("odt");
+    await waitFor(() => resolveBlockedSave);
+    const duplicateSave = await instance.save().catch((error) => error);
+    assert(
+      duplicateSave instanceof Error &&
+        duplicateSave.message ===
+          "A save request is already in progress for this editor" &&
+        Number(savedFiles.length) === 4,
+      "concurrent save did not reject with the onlyoffice-browser contract",
+    );
+
+    dispatchDocumentStateChange?.({ data: true });
+    await delay(150);
+    blockProgrammaticSave = false;
+    resolveBlockedSave?.();
+    await pendingSave;
+    resolveBlockedSave = undefined;
+    await delay(250);
+    const stateAfterTargetSave = instance.getState();
+    assert(
+      stateAfterTargetSave.fileName === originalState.fileName &&
+        stateAfterTargetSave.fileType === originalState.fileType,
+      "save(targetExt) mutated the open document identity",
+    );
+    assert(
+      stateAfterTargetSave.dirty &&
+        !dirtyChanges.slice(dirtyChangeStart).includes(false),
+      "an edit made during onSave emitted a transient clean state",
+    );
+
+    await instance.save();
+    await delay(250);
+    assert(
+      !instance.getState().dirty &&
+        Number(savedFiles.length) === 5 &&
+        Number(callbackErrors.length) === 2 &&
+        callbackErrors[1]!.message === "programmatic persistence failed",
+      "successful programmatic persistence did not release the dirty latch",
+    );
+  } finally {
+    if (converterPatched) converter.convert = originalConverterConvert;
+    await mount.destroy();
+    popup.close();
+  }
+}
+
+async function testCrossDocumentCompatMount() {
+  const popup = window.open(
+    "about:blank",
+    `onlyoffice-cross-document-${Date.now()}`,
+    "popup,width=640,height=480",
+  );
+  assert(popup, "same-origin popup Window was blocked");
+
+  const containerId = `cross-document-host-${Date.now()}`;
+  const rootContainer = document.createElement("div");
+  rootContainer.id = containerId;
+  document.body.appendChild(rootContainer);
+
+  popup.document.title = "OnlyOffice cross-document host";
+  const popupContainer = popup.document.createElement("div");
+  popupContainer.id = containerId;
+  popup.document.body.appendChild(popupContainer);
+
+  type FakeEditorConfig = {
+    editorConfig?: {
+      plugins?: { pluginsData?: string[] };
+    };
+    events?: {
+      onDocumentReady?: () => void;
+    };
+  };
+  let popupPluginsData: string[] | undefined;
+
+  class PopupDocEditor {
+    static version() {
+      return "cross-document-fake";
+    }
+
+    private readonly iframe: HTMLIFrameElement;
+
+    constructor(id: string | undefined, config: FakeEditorConfig) {
+      const host = popup.document.getElementById(id ?? "");
+      if (!host) throw new Error("fake DocsAPI received the wrong Document");
+      this.iframe = popup.document.createElement("iframe");
+      this.iframe.name = "frameEditor";
+      this.iframe.srcdoc = "<!doctype html><title>fake editor</title>";
+      host.appendChild(this.iframe);
+      popupPluginsData = config.editorConfig?.plugins?.pluginsData;
+      popup.setTimeout(() => config.events?.onDocumentReady?.(), 0);
+    }
+
+    destroyEditor() {
+      this.iframe.remove();
+    }
+  }
+
+  popup.DocsAPI = {
+    DocEditor: PopupDocEditor as unknown as DocEditorConstructor,
+  };
+
+  const pluginGuid = "asc.{E2E4D0B6-6F1E-4B80-9A4D-8F6B1C2D3E40}";
+  const pluginConfigUrl =
+    `${window.location.origin}/e2e/nexolyra-plugin/config.json`;
+  const readyPlugins: Array<{ pluginGuid: string; editorType: string }> = [];
+  const pluginCdnOrigin = "https://plugins-cdn.example.test";
+  registerOnlyOfficeStaticResource({ cdnOrigin: pluginCdnOrigin });
+  const options = {
+    hostUrl: "https://host.example/office-host.html",
+    emptyType: "xlsx" as const,
+    plugins: {
+      configUrls: [pluginConfigUrl],
+    },
+    onPluginReady(readyPluginGuid: string, editorType: string) {
+      readyPlugins.push({ pluginGuid: readyPluginGuid, editorType });
+    },
+  };
+  const rootMount = mountOfficeEditor(rootContainer, options);
+  let popupMount: ReturnType<typeof mountOfficeEditor> | undefined;
+  try {
+    popupMount = mountOfficeEditor(popupContainer, options);
+    const rootManager = editorManagerFactory.get(rootContainer);
+    const popupManager = editorManagerFactory.get(popupContainer);
+    assert(
+      rootManager !== popupManager,
+      "factory reused a manager across owner Documents",
+    );
+
+    const instance = await popupMount.activate();
+    assert(
+      instance.getState().status === "ready",
+      "popup editor did not reach ready",
+    );
+    const editorFrame = popupContainer.querySelector<HTMLIFrameElement>(
+      'iframe[name="frameEditor"]',
+    );
+    assert(
+      editorFrame,
+      "DocsAPI mounted outside the popup container",
+    );
+    assert(
+      !rootContainer.querySelector('iframe[name="frameEditor"]'),
+      "popup DocsAPI leaked editor DOM into the root Document",
+    );
+    assert(
+      Boolean(
+        (
+          popup as Window & {
+            __ONLYOFFICE_SCOPED_IO__?: Record<string, unknown>;
+          }
+        ).__ONLYOFFICE_SCOPED_IO__?.[containerId],
+      ),
+      "runtime bridge registry was installed on the wrong Window",
+    );
+    const exposedPluginUrl = new URL(popupPluginsData?.[0] ?? "");
+    assert(
+      exposedPluginUrl.href === pluginConfigUrl &&
+        exposedPluginUrl.origin !== pluginCdnOrigin &&
+        exposedPluginUrl.pathname.endsWith("/config.json"),
+      "EditorManager did not preserve the source config.json URL in CDN mode",
+    );
+    const configuredBridge = (
+      instance as unknown as {
+        pluginBridge: {
+          configuredPluginGuids: Set<string>;
+          configuredPluginOrigins: Map<string, Set<string>>;
+        };
+      }
+    ).pluginBridge;
+    assert(
+      configuredBridge.configuredPluginGuids.has(pluginGuid) &&
+        configuredBridge.configuredPluginOrigins
+          .get(pluginGuid)
+          ?.has(window.location.origin) &&
+        readyPlugins.length === 0,
+      "configUrls manifest GUID/origin was not added without autostart",
+    );
+  } finally {
+    await popupMount?.destroy();
+    await rootMount.destroy();
+    editorManagerFactory.destroy(rootContainer);
+    rootContainer.remove();
+    popup.close();
+    resetOnlyOfficeStaticResource();
+  }
+}
+
 const regressionTests = [
   ["x2t worker lifecycle", testX2tWorkerLifecycle],
   ["x2t queue and timeout", testX2tQueueAndTimeout],
   ["editor server latest wins", testEditorServerLatestWins],
   ["cross-origin bridge isolation", testBridgeIsolation],
   ["bridge lifecycle races", testBridgeLifecycleRaces],
+  ["plugin config proxy allowlist", testPluginConfigProxyAllowlist],
   ["Editor.bin source detection", testEditorBinDetection],
+  ["compatibility facade contracts", testCompatibilityFacadeContracts],
+  [
+    "compatibility native output callbacks",
+    testCompatibilityNativeOutputCallbacks,
+  ],
+  ["cross-document compat mount", testCrossDocumentCompatMount],
 ] as const;
 
 async function runRegressionTests(onChange: (steps: RegressionStep[]) => void) {

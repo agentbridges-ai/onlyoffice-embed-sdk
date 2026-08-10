@@ -24,4 +24,7 @@ test("canonical cross-origin bridge matches the deployed asset", async () => {
   expect(source).toContain("message.bridgeInstanceId !== bridgeInstanceId");
   expect(source).toContain("body.byteOffset + body.byteLength");
   expect(source).toContain("parentOrigin,");
+  expect(source).toContain(
+    'parsed.pathname.slice(-"/config.json".length) === "/config.json"',
+  );
 });
