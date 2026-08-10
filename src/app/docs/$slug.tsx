@@ -17,7 +17,7 @@ export const Route = createFileRoute("/docs/$slug")({
     };
   },
   head: ({ loaderData }) => ({
-    meta: [{ title: loaderData?.title ?? "文档 — OnlyOffice Web Comp" }],
+    meta: [{ title: loaderData?.title ?? "文档 — OnlyOffice Embed SDK" }],
   }),
   component: DocsSlugPage,
 });

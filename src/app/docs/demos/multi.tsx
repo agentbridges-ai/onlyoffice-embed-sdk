@@ -5,7 +5,7 @@ import { TabsMultiPage } from "@/features/demo/tabs-multi-page";
 
 export const Route = createFileRoute("/docs/demos/multi")({
   head: () => ({
-    meta: [{ title: "多实例示例 — OnlyOffice Web Comp" }],
+    meta: [{ title: "多实例示例 — OnlyOffice Embed SDK" }],
   }),
   component: DocsDemosMultiPage,
 });

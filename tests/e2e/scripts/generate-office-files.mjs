@@ -133,7 +133,7 @@ const coreProps = xml`
 const appProps = xml`
   <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-    <Application>OnlyOffice Web Comp E2E</Application>
+    <Application>OnlyOffice Embed SDK E2E</Application>
   </Properties>
 `;
 

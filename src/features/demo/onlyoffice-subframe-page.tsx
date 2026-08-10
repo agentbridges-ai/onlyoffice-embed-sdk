@@ -296,6 +296,8 @@ export function OnlyOfficeSubframePage() {
           await getManager().setTheme(payload.theme || "theme-white");
           return null;
         }
+        case "toggle-language":
+          return await getManager().toggleLanguage();
         case "download":
           return await getManager().exportAsBlob();
         case "print-logs":

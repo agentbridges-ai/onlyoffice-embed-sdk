@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 export const SITE_GITHUB =
-  "https://github.com/electroluxcode/onlyoffice-web-comp";
+  "https://github.com/agentbridges-ai/onlyoffice-embed-sdk";
 
 const buttonBase =
   "inline-flex h-9 items-center justify-center border px-4 text-[13px] leading-none transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900";

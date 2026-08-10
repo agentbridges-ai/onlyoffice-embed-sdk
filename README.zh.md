@@ -1,4 +1,4 @@
-# OnlyOffice Web Comp
+# OnlyOffice Embed SDK
 
 > 📖 [English](README.md) | 中文
 
@@ -10,12 +10,12 @@
 
 | 部分 | 路径 | 说明 |
 |------|------|------|
-| **组件库** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | 可复用的 Web 端编辑器封装 + Markdown 文档源 |
+| **SDK** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | OnlyOffice Embed SDK 运行时封装 + Markdown 文档源 |
 | **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start 文件路由 + Cloudflare Worker |
 
 ## 项目定位
 
-这个项目目前不是一个 `npm install` 后直接引入的包，而是一个浏览器端 OnlyOffice 集成模板：可复用的运行时代码在 `src/components/onlyoffice-web-comp/`，仓库同时包含这套运行时需要的 OnlyOffice SDK / x2t 静态资源。
+这个项目目前不是一个 `npm install` 后直接引入的包，而是一个浏览器端 OnlyOffice Embed SDK 集成模板：可复用的运行时代码在 `src/components/onlyoffice-web-comp/`，仓库同时包含这套运行时需要的 OnlyOffice SDK / x2t 静态资源。
 
 如果你希望在自己的 Web 项目里接入 OnlyOffice，并且不想部署 OnlyOffice Document Server，可以把这里当作一套可复制的工程实现。演示站点也是项目的一部分，目的是让你直接参考一个已经跑通的编辑器生命周期，而不是只看零散 API 片段。
 
@@ -23,7 +23,7 @@
 
 实际接入可以按这个路径做：
 
-1. 复制 [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) 到你的项目源码目录。
+1. 复制 [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) 到你的项目源码目录，作为 OnlyOffice Embed SDK 运行时。
 2. 复制 [`public/packages/onlyoffice/`](public/packages/onlyoffice/) 静态资源到你的项目 `public/packages/onlyoffice/` 目录。
 3. 参考 [`src/features/demo/office-preview-page.tsx`](src/features/demo/office-preview-page.tsx) 构造自己的界面：准备编辑器容器，维护一个 `OnlyOfficeManager` 实例，按需调用 `openDocument`、`downloadExport`、`toggleReadOnly`，并在页面卸载时销毁 manager。需要从父页面调用编辑器 Automation API 时，可通过 `createConnector()` 获取 Developer Edition Connector。
 
@@ -43,7 +43,7 @@
 
 ```bash
 git clone <repository-url>
-cd onlyoffice-web-comp
+cd onlyoffice-embed-sdk
 pnpm install
 pnpm dev
 # http://localhost:3001
@@ -54,7 +54,7 @@ pnpm dev
 | 路由 | 说明 |
 |------|------|
 | `/` | 产品主页 |
-| `/docs` | 组件库文档（直接渲染 Markdown） |
+| `/docs` | OnlyOffice Embed SDK 文档（直接渲染 Markdown） |
 | `/docs/demos/single` | 单实例在线示例 |
 | `/docs/demos/multi` | 多实例 Tab 在线示例 |
 
@@ -62,11 +62,11 @@ pnpm dev
 
 旧路由 `/examples` 会重定向到单实例示例；`/multi` 会重定向到多实例示例。
 
-## 组件库文档
+## OnlyOffice Embed SDK 文档
 
 **API 与接入说明不在本 README 重复**，请阅读组件库文档：
 
-- **入口**：[组件库 README（中文）](src/components/onlyoffice-web-comp/readme.zh.md)
+- **入口**：[OnlyOffice Embed SDK README（中文）](src/components/onlyoffice-web-comp/readme.zh.md)
 - **概述**：[docs/概述.md](src/components/onlyoffice-web-comp/docs/概述.md)
 
 | 文档 | 内容 |
@@ -105,12 +105,12 @@ onlyoffice-web-comp/
 │   │   ├── marketing/                    # 着陆页
 │   │   └── shell/                        # 站点 Header / Footer / Layout
 │   └── components/
-│       └── onlyoffice-web-comp/          # SDK 封装 + docs/*.md 文档源
+│       └── onlyoffice-web-comp/          # OnlyOffice Embed SDK 封装 + docs/*.md 文档源
 ├── public/                               # OnlyOffice SDK 静态资源
 └── ...
 ```
 
-文档页直接读取 `src/components/onlyoffice-web-comp/docs/` 下的 Markdown；示例 Tab 内嵌 `src/features/demo/` 的可交互编辑器。
+文档页直接读取 `src/components/onlyoffice-web-comp/docs/` 下的 Markdown；示例 Tab 内嵌 `src/features/demo/` 的可交互 OnlyOffice Embed SDK 编辑器。
 
 ## 技术栈
 
@@ -127,7 +127,7 @@ pnpm build
 pnpm run deploy
 ```
 
-应用通过 Wrangler 以 TanStack Start SSR Worker 部署。生产路由写在 `wrangler.jsonc`，包括 `onlyoffice.agent-bridges.com` 和隔离子帧使用的 `*.b.agent-bridges.com`。项目不再使用 Vercel。
+应用通过 Wrangler 以 TanStack Start SSR Worker 部署。生产路由写在 `wrangler.jsonc`，包括 `onlyoffice.agent-bridges.com` 和隔离子帧使用的 12 个固定生肖子域名：`rat`、`ox`、`tiger`、`rabbit`、`dragon`、`snake`、`horse`、`goat`、`monkey`、`rooster`、`dog`、`pig`。项目不再使用 Vercel。
 
 ### 将 SDK 静态资源部署到 Cloudflare Pages CDN
 

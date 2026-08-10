@@ -23,9 +23,9 @@ test("multi-instance editors use isolated subframe origins", async ({ page }) =>
   );
   const port = new URL(page.url()).port;
   expect(origins).toEqual([
-    `http://a.b.localhost:${port}`,
-    `http://b.b.localhost:${port}`,
-    `http://c.b.localhost:${port}`,
+    `http://rat.onlyoffice.localhost:${port}`,
+    `http://ox.onlyoffice.localhost:${port}`,
+    `http://tiger.onlyoffice.localhost:${port}`,
   ]);
 
   for (const origin of origins) {

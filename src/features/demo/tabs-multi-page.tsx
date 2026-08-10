@@ -26,6 +26,12 @@ import {
 } from "./connector-demo";
 import { getFileExtension } from "./office-formats";
 import {
+  CHINESE_ZODIAC_SLOT_COUNT,
+  CHINESE_ZODIAC_SLOTS,
+  getChineseZodiacSlot,
+  type ChineseZodiacSlot,
+} from "./chinese-zodiac-slots";
+import {
   getSubframeOrigin,
   SubframeManager,
 } from "./subframe-manager";
@@ -60,6 +66,7 @@ type TabItem = {
   label: string;
   containerId: string;
   subframeHost: string;
+  chineseZodiac: ChineseZodiacSlot;
   fileName: string;
   readOnly: boolean;
   docKind: DocKind;
@@ -96,12 +103,14 @@ const DOC_PRESETS: Record<DocKind, DocPreset> = {
 
 const SubframeTabHost = memo(function SubframeTabHost({
   tabId,
+  zodiacId,
   src,
   title,
   onFrame,
   onLoad,
 }: {
   tabId: string;
+  zodiacId: string;
   src: string;
   title: string;
   onFrame: (tabId: string, frame: HTMLIFrameElement | null) => void;
@@ -120,22 +129,12 @@ const SubframeTabHost = memo(function SubframeTabHost({
       title={title}
       data-onlyoffice-subframe="true"
       data-onlyoffice-instance-id={tabId}
+      data-onlyoffice-zodiac={zodiacId}
       className="absolute inset-0 h-full w-full border-0"
       onLoad={handleLoad}
     />
   );
 });
-
-function getSubframeLabel(index: number) {
-  let value = Math.max(1, index);
-  let label = "";
-  while (value > 0) {
-    value -= 1;
-    label = String.fromCharCode(97 + (value % 26)) + label;
-    value = Math.floor(value / 26);
-  }
-  return label;
-}
 
 function getPreset(docKind: DocKind) {
   return DOC_PRESETS[docKind];
@@ -145,14 +144,16 @@ function isNewDocument(tab: TabItem) {
   return tab.fileName === getPreset(tab.docKind).defaultFileName;
 }
 
-function createTab(index: number, docKind: DocKind): TabItem {
+function createTab(slotIndex: number, docKind: DocKind): TabItem {
   const id = nanoid(6);
   const preset = getPreset(docKind);
+  const chineseZodiac = getChineseZodiacSlot(slotIndex);
   return {
     id,
-    label: `${preset.label} ${index}`,
+    label: `${preset.label} ${slotIndex + 1}`,
     containerId: `tab-editor-${id}`,
-    subframeHost: getSubframeLabel(index),
+    subframeHost: chineseZodiac.id,
+    chineseZodiac,
     fileName: preset.defaultFileName,
     readOnly: false,
     docKind,
@@ -160,7 +161,7 @@ function createTab(index: number, docKind: DocKind): TabItem {
 }
 
 function createInitialTabState() {
-  const initialTab = createTab(1, "word");
+  const initialTab = createTab(0, "word");
   return { tabs: [initialTab], activeId: initialTab.id };
 }
 
@@ -403,7 +404,15 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
   }, []);
 
   const addTab = (docKind: DocKind) => {
-    const nextTab = createTab(tabs.length + 1, docKind);
+    const nextSlotIndex = CHINESE_ZODIAC_SLOTS.findIndex(
+      (slot) => !tabs.some((tab) => tab.chineseZodiac.id === slot.id),
+    );
+    if (nextSlotIndex < 0) {
+      setError(`多实例最多支持 ${CHINESE_ZODIAC_SLOT_COUNT} 个固定生肖槽位`);
+      return;
+    }
+
+    const nextTab = createTab(nextSlotIndex, docKind);
     setTabs((prev) => [...prev, nextTab]);
     setActiveId(nextTab.id);
   };
@@ -714,11 +723,20 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
                   <button
                     type="button"
                     onClick={() => setActiveId(tab.id)}
+                    data-onlyoffice-zodiac={tab.chineseZodiac.id}
                     className={`flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1.5 text-[12px] ${
                       isActive ? "text-neutral-900" : "text-neutral-500"
                     }`}
-                    title={tab.fileName}
+                    title={`${tab.chineseZodiac.name} · ${tab.fileName}`}
                   >
+                    <span
+                      className="shrink-0 text-[16px] leading-none"
+                      role="img"
+                      aria-label={tab.chineseZodiac.name}
+                    >
+                      {tab.chineseZodiac.emoji}
+                    </span>
+                    <span className="sr-only">{tab.chineseZodiac.name}</span>
                     <span className="shrink-0 text-[11px] text-neutral-400">
                       {preset.badge}
                     </span>
@@ -750,8 +768,13 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
                     key={kind}
                     type="button"
                     onClick={() => addTab(kind)}
+                    disabled={tabs.length >= CHINESE_ZODIAC_SLOT_COUNT}
                     className="inline-flex h-7 items-center border border-dashed border-neutral-300 bg-transparent px-2 text-[12px] text-neutral-600 hover:border-neutral-400 hover:bg-white"
-                    title={`新建 ${preset.label} 标签页`}
+                    title={
+                      tabs.length >= CHINESE_ZODIAC_SLOT_COUNT
+                        ? `已达到 ${CHINESE_ZODIAC_SLOT_COUNT} 个生肖槽位上限`
+                        : `新建 ${preset.label} 标签页`
+                    }
                   >
                     + {preset.label}
                   </button>
@@ -797,6 +820,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
           >
             <SubframeTabHost
               tabId={tab.id}
+              zodiacId={tab.chineseZodiac.id}
               src={getSubframeSrc(tab)}
               title={`${getPreset(tab.docKind).label} ${tab.label} 编辑器`}
               onFrame={handleFrameRef}

@@ -33,7 +33,7 @@ export function BrandLogo({ compact = false, href = "/" }: BrandLogoProps) {
           </span>
           <span className="hidden h-3.5 w-px bg-neutral-300 sm:block" />
           <span className="hidden text-[13px] text-neutral-500 sm:inline">
-            Web Comp
+            Embed SDK
           </span>
         </span>
       )}

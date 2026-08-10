@@ -6,7 +6,7 @@ import { OfficePreviewPage } from "@/features/demo/office-preview-page";
 
 export const Route = createFileRoute("/docs/demos/single")({
   head: () => ({
-    meta: [{ title: "单实例示例 — OnlyOffice Web Comp" }],
+    meta: [{ title: "单实例示例 — OnlyOffice Embed SDK" }],
   }),
   component: DocsDemosSinglePage,
 });

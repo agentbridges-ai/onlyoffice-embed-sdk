@@ -4,7 +4,7 @@ import { HomePage } from "@/features/marketing";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "OnlyOffice Web Comp — 浏览器端文档编辑器" },
+      { title: "OnlyOffice Embed SDK — 浏览器端文档编辑器" },
       {
         name: "description",
         content:

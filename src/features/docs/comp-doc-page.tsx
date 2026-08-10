@@ -1,5 +1,5 @@
 /**
- * 服务端 Markdown 文档页：读取 `onlyoffice-web-comp/docs/*.md` 并渲染。
+ * 服务端 Markdown 文档页：读取 OnlyOffice Embed SDK 的 Markdown 文档并渲染。
  */
 import {
   extractDocTitle,
@@ -31,6 +31,6 @@ export function getCompDocMetadata(slug: string) {
   const title = extractDocTitle(content, doc.label);
 
   return {
-    title: `${title} — OnlyOffice Web Comp`,
+    title: `${title} — OnlyOffice Embed SDK`,
   };
 }

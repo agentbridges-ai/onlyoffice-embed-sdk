@@ -1,5 +1,5 @@
 /**
- * 读取 `onlyoffice-web-comp/docs/` 下的 Markdown 源文件。
+ * 读取 OnlyOffice Embed SDK 文档目录下的 Markdown 源文件。
  *
  * Vite bundles these documents as raw assets so the same code works in the
  * browser, during SSR, and inside a Cloudflare Worker.
