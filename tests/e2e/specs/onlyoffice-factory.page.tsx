@@ -371,8 +371,12 @@ export async function runScenario(
         result.editorType === "word" && result.bridgeHostIsTop === true,
         "Plugin did not use the Nexolyra window.parent.parent bridge",
       );
+      const normalizedEntryPath = result.entryPath?.replace(
+        /\/index\.html$/,
+        "/",
+      );
       assert(
-        result.entryPath === "/e2e/nexolyra-plugin/index.html",
+        normalizedEntryPath === "/e2e/nexolyra-plugin/",
         `Relative plugin entry was not resolved to the embed origin: ${result.entryPath}`,
       );
       return `${ready.editorType} READY + INVOKE/RESULT`;

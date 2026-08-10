@@ -1783,8 +1783,11 @@ export function RuntimeRegressionsE2EPage() {
     runRegressionTests((next) => {
       if (!disposed) setSteps(next);
     })
-      .then(() => {
-        if (!disposed) setStatus("passed");
+    .then((finalSteps) => {
+      if (!disposed) {
+        setSteps(finalSteps);
+        setStatus("passed");
+      }
       })
       .catch(() => {
         if (!disposed) setStatus("failed");
