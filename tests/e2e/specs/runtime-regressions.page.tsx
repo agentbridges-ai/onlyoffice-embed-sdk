@@ -28,6 +28,7 @@ import {
   X2tConversionError,
   X2tConverter,
 } from "@/components/onlyoffice-web-comp/internal/editor/x2t";
+import { createEditorView } from "@/components/onlyoffice-web-comp/util/x2t";
 import {
   OfficeHostIdentityMismatchError,
   OfficeHostIsolationError,
@@ -1676,6 +1677,35 @@ async function testCrossDocumentCompatMount() {
       rootManager !== popupManager,
       "factory reused a manager across owner Documents",
     );
+
+    const rootCreate = rootManager.create;
+    const popupCreate = popupManager.create;
+    try {
+      // Keep this assertion focused on createEditorView's manager routing. The
+      // real popup activation below continues to cover owner-Window DocsAPI,
+      // DOM mounting and bridge registration.
+      (rootManager as any).create = async () => rootManager;
+      (popupManager as any).create = async () => popupManager;
+      const rootViewManager = await createEditorView({
+        container: rootContainer,
+        containerId,
+        fileName: "root.docx",
+        isNew: true,
+      });
+      const popupViewManager = await createEditorView({
+        container: popupContainer,
+        containerId,
+        fileName: "popup.docx",
+        isNew: true,
+      });
+      assert(
+        rootViewManager === rootManager && popupViewManager === popupManager,
+        "createEditorView ignored the container owner Document",
+      );
+    } finally {
+      (rootManager as any).create = rootCreate;
+      (popupManager as any).create = popupCreate;
+    }
 
     const instance = await popupMount.activate();
     assert(
