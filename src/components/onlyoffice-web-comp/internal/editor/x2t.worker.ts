@@ -2,10 +2,7 @@
 
 import { AvsFileType, X2tConvertParams, X2tConvertResult } from "./types";
 import { loadX2tPdfFonts } from "./x2t-assets";
-import {
-  fetchMaybeBrotliAsset,
-  fetchMaybeBrotliScript,
-} from "./x2t-assets";
+import { fetchMaybeBrotliAsset, fetchMaybeBrotliScript } from "./x2t-assets";
 import { getStaticResource, resolveSiteUrl } from "../../const";
 
 /**
@@ -55,11 +52,12 @@ function readU16(data: Uint8Array, offset: number) {
 
 function readU32(data: Uint8Array, offset: number) {
   return (
-    data[offset] |
-    (data[offset + 1] << 8) |
-    (data[offset + 2] << 16) |
-    (data[offset + 3] << 24)
-  ) >>> 0;
+    (data[offset] |
+      (data[offset + 1] << 8) |
+      (data[offset + 2] << 16) |
+      (data[offset + 3] << 24)) >>>
+    0
+  );
 }
 
 function writeU16(data: Uint8Array, offset: number, value: number) {
@@ -304,7 +302,10 @@ async function rewriteOfficeZipText(
     const internalAttrs = readU16(input, readOffset + 36);
     const externalAttrs = readU32(input, readOffset + 38);
     const localOffset = readU32(input, readOffset + 42);
-    const nameBytes = input.slice(readOffset + 46, readOffset + 46 + nameLength);
+    const nameBytes = input.slice(
+      readOffset + 46,
+      readOffset + 46 + nameLength,
+    );
     const name = decoder.decode(nameBytes);
 
     const localNameLength = readU16(input, localOffset + 26);
@@ -385,7 +386,9 @@ async function rewriteOfficeZipText(
   writeU32(end, 12, centralDirectory.length);
   writeU32(end, 16, outputOffset);
 
-  return changed ? concatBytes([...localParts, centralDirectory, end]).buffer : data;
+  return changed
+    ? concatBytes([...localParts, centralDirectory, end]).buffer
+    : data;
 }
 
 async function rewriteZipFontNames(
@@ -464,27 +467,40 @@ async function initX2t(params?: X2tConvertParams): Promise<void> {
     fetchMaybeBrotliAsset(wasmUrl),
   ]);
 
-  Object.assign(self, {
-    __filename: x2tBaseUrl,
-    wasmBinary,
+  await new Promise<void>((resolve, reject) => {
+    const module = {
+      wasmBinary,
+      onRuntimeInitialized: resolve,
+      onAbort: (reason: unknown) =>
+        reject(
+          new Error(
+            `x2t runtime aborted: ${
+              reason == null ? "unknown reason" : String(reason)
+            }`,
+          ),
+        ),
+    };
+    Object.assign(self, {
+      __filename: x2tBaseUrl,
+      wasmBinary,
+      Module: module,
+    });
+
+    try {
+      executeEmscriptenScript(scriptSource);
+      x2t = (self as any).Module;
+      if (x2t?.calledRun) {
+        resolve();
+      }
+    } catch (error) {
+      reject(error);
+    }
   });
 
-  executeEmscriptenScript(scriptSource);
-
-  x2t = (self as any).Module;
-
-  await new Promise<void>((resolve) => {
-    x2t.onRuntimeInitialized = () => resolve();
-  });
-
-  try {
-    x2t.FS.mkdir("/working");
-    x2t.FS.mkdir("/working/media");
-    x2t.FS.mkdir("/working/fonts");
-    x2t.FS.mkdir("/working/themes");
-  } catch (err) {
-    console.error("[x2t.worker] mkdir error:", err);
-  }
+  ensureDirectory("/working/media");
+  ensureDirectory("/working/fonts");
+  ensureDirectory("/working/themes");
+  ensureDirectory("/tmp/x2t-conversion");
 
   console.log("[x2t.worker] Initialized successfully");
 }
@@ -508,22 +524,35 @@ async function ensureInit(params?: X2tConvertParams): Promise<void> {
 /**
  * @description 转换完成后清理临时文件。
  */
-function cleanupFiles(files: string[]): void {
-  for (const file of files) {
+function cleanupFiles(): void {
+  const errors: unknown[] = [];
+  const attempt = (cleanup: () => void) => {
     try {
-      x2t.FS.unlink(file);
-    } catch (err) {
-      console.error(err);
+      cleanup();
+    } catch (error) {
+      errors.push(error);
     }
+  };
+
+  attempt(() => cleanDirectoryFiles("/working"));
+  attempt(() => cleanDirectoryFiles("/tmp/x2t-conversion"));
+  attempt(() => ensureDirectory("/working/media"));
+  attempt(() => ensureDirectory("/working/fonts"));
+  attempt(() => ensureDirectory("/working/themes"));
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Failed to clean x2t workspace: ${errors
+        .map((error) => serializeWorkerError(error).text)
+        .join("; ")}`,
+    );
   }
-  cleanMedia();
-  cleanFonts();
-  cleanThemes();
 }
 
 type SerializedWorkerError = {
   name: string;
   message?: string;
+  stack?: string;
   errno?: unknown;
   code?: unknown;
   path?: unknown;
@@ -534,6 +563,8 @@ type X2tWorkerErrorDetails = {
   stage: string;
   fileFrom?: string;
   fileTo?: string;
+  exitCode?: number;
+  conversionError?: SerializedWorkerError;
   readOutputError?: SerializedWorkerError;
 };
 
@@ -547,7 +578,9 @@ class X2tWorkerError extends Error {
   }
 }
 
-function formatSerializedWorkerError(error: Omit<SerializedWorkerError, "text">) {
+function formatSerializedWorkerError(
+  error: Omit<SerializedWorkerError, "text">,
+) {
   const message = error.message ? `: ${error.message}` : "";
   const details = [
     ["errno", error.errno],
@@ -567,6 +600,7 @@ function serializeWorkerError(error: unknown): SerializedWorkerError {
     const serialized = {
       name: error.name || "Error",
       message: error.message,
+      stack: error.stack,
     };
     return {
       ...serialized,
@@ -611,30 +645,35 @@ function serializeWorkerError(error: unknown): SerializedWorkerError {
   };
 }
 
-function cleanMedia() {
+function executeConversion(fileFrom: string, fileTo: string) {
+  let exitCode: number;
   try {
-    const mediaFiles = x2t.FS.readdir("/working/media/");
-    for (const file of mediaFiles) {
-      if (file !== "." && file !== "..") {
-        x2t.FS.unlink("/working/media/" + file);
-      }
-    }
-  } catch (err) {
-    console.error(err);
+    exitCode = x2t.ccall("main1", "number", ["string"], [xmlPath]);
+  } catch (error) {
+    throw new X2tWorkerError("x2t conversion failed", {
+      stage: "execute",
+      fileFrom,
+      fileTo,
+      conversionError: serializeWorkerError(error),
+    });
+  }
+
+  if (exitCode !== 0) {
+    throw new X2tWorkerError(`x2t conversion failed with code ${exitCode}`, {
+      stage: "execute",
+      fileFrom,
+      fileTo,
+      exitCode,
+    });
   }
 }
 
+function cleanMedia() {
+  cleanDirectoryFiles("/working/media");
+}
+
 function cleanFonts() {
-  try {
-    const fontFiles = x2t.FS.readdir("/working/fonts/");
-    for (const file of fontFiles) {
-      if (file !== "." && file !== "..") {
-        x2t.FS.unlink("/working/fonts/" + file);
-      }
-    }
-  } catch (err) {
-    console.error(err);
-  }
+  cleanDirectoryFiles("/working/fonts");
 }
 
 function cleanThemes() {
@@ -642,24 +681,20 @@ function cleanThemes() {
 }
 
 function cleanDirectoryFiles(dir: string) {
-  try {
-    const files = x2t.FS.readdir(dir);
-    for (const file of files) {
-      if (file === "." || file === "..") {
-        continue;
-      }
-
-      const path = `${dir}/${file}`;
-      const stat = x2t.FS.stat(path);
-      if (x2t.FS.isDir(stat.mode)) {
-        cleanDirectoryFiles(path);
-        x2t.FS.rmdir(path);
-      } else {
-        x2t.FS.unlink(path);
-      }
+  const files = x2t.FS.readdir(dir);
+  for (const file of files) {
+    if (file === "." || file === "..") {
+      continue;
     }
-  } catch (err) {
-    console.error(err);
+
+    const path = `${dir}/${file}`;
+    const stat = x2t.FS.stat(path);
+    if (x2t.FS.isDir(stat.mode)) {
+      cleanDirectoryFiles(path);
+      x2t.FS.rmdir(path);
+    } else {
+      x2t.FS.unlink(path);
+    }
   }
 }
 
@@ -669,25 +704,18 @@ function ensureDirectory(path: string) {
 
   for (const part of parts) {
     current += "/" + part;
-    try {
-      if (!x2t.FS.analyzePath(current).exists) {
-        x2t.FS.mkdir(current);
-      }
-    } catch (err) {
-      console.error(err);
+    if (!x2t.FS.analyzePath(current).exists) {
+      x2t.FS.mkdir(current);
     }
   }
 }
 
-function writeFileMap(files: { [key: string]: Uint8Array }) {
+function writeFileMap(files: { [key: string]: Uint8Array }, root: "themes") {
   for (const [key, value] of Object.entries(files)) {
-    try {
-      const path = "/working/" + key.replace(/^\/+/, "");
-      ensureDirectory(path.split("/").slice(0, -1).join("/"));
-      x2t.FS.writeFile(path, value);
-    } catch (err) {
-      console.error(key, err);
-    }
+    const relativePath = normalizeRootRelativePath(key, root, `${root} path`);
+    const path = `/working/${root}/${relativePath}`;
+    ensureDirectory(path.split("/").slice(0, -1).join("/"));
+    x2t.FS.writeFile(path, value);
   }
 }
 
@@ -698,22 +726,73 @@ function writeFonts(fonts?: { [key: string]: Uint8Array }) {
   }
 
   for (const [key, value] of Object.entries(fonts)) {
-    try {
-      x2t.FS.writeFile("/working/fonts/" + key, value);
-    } catch (err) {
-      console.error(key, err);
-    }
+    const fileName = assertSafeFileName(key, "font file name");
+    x2t.FS.writeFile("/working/fonts/" + fileName, value);
   }
+}
+
+function assertSafeRelativePath(path: string, label: string) {
+  if (
+    !path ||
+    path.length > 512 ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    /[\0-\x1f\x7f]/.test(path) ||
+    path.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error(`Invalid ${label}: ${JSON.stringify(path)}`);
+  }
+  return path;
+}
+
+function assertSafeFileName(fileName: string, label: string) {
+  const safe = assertSafeRelativePath(fileName, label);
+  if (safe.includes("/")) {
+    throw new Error(`Invalid ${label}: ${JSON.stringify(fileName)}`);
+  }
+  return safe;
+}
+
+function normalizeRootRelativePath(
+  path: string,
+  root: "media" | "themes",
+  label: string,
+) {
+  const safe = assertSafeRelativePath(path, label);
+  const prefix = `${root}/`;
+  const relativePath = safe.startsWith(prefix)
+    ? safe.slice(prefix.length)
+    : safe;
+  return assertSafeRelativePath(relativePath, label);
+}
+
+function assertSafeWorkingPath(path: string, label: string) {
+  const prefix = "/working/";
+  if (!path.startsWith(prefix)) {
+    throw new Error(`Invalid ${label}: ${JSON.stringify(path)}`);
+  }
+  assertSafeRelativePath(path.slice(prefix.length), label);
+  return path;
+}
+
+function escapeXml(value: string | number | boolean) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&apos;",
+      })[character]!,
+  );
 }
 
 function writePdfBin(pdfBin?: Uint8Array) {
   const pdfPath = "/working/pdf.bin";
-  try {
-    if (x2t.FS.analyzePath(pdfPath).exists) {
-      x2t.FS.unlink(pdfPath);
-    }
-  } catch (err) {
-    console.error(err);
+  if (x2t.FS.analyzePath(pdfPath).exists) {
+    x2t.FS.unlink(pdfPath);
   }
 
   if (pdfBin?.byteLength) {
@@ -725,47 +804,29 @@ function writePdfBin(pdfBin?: Uint8Array) {
  * @description 从工作目录读取转换生成的媒体文件。
  */
 function readMedia(): { [key: string]: Uint8Array } {
-  const media: { [key: string]: Uint8Array } = {};
-  try {
-    const files = x2t.FS.readdir("/working/media/");
-    for (const file of files) {
-      if (file !== "." && file !== "..") {
-        const fileData = x2t.FS.readFile("/working/media/" + file, {
-          encoding: "binary",
-        });
-        media[file] = fileData;
-      }
-    }
-  } catch (e) {
-    console.error(e);
-  }
-  return media;
+  return readDirectoryFiles("/working/media", "");
 }
 
 function readDirectoryFiles(root: string, prefix: string) {
   const files: { [key: string]: Uint8Array } = {};
 
   const visit = (dir: string, relDir: string) => {
-    try {
-      for (const file of x2t.FS.readdir(dir)) {
-        if (file === "." || file === "..") {
-          continue;
-        }
-
-        const path = `${dir}/${file}`;
-        const rel = relDir ? `${relDir}/${file}` : file;
-        const stat = x2t.FS.stat(path);
-        if (x2t.FS.isDir(stat.mode)) {
-          visit(path, rel);
-          continue;
-        }
-
-        files[`${prefix}/${rel}`] = x2t.FS.readFile(path, {
-          encoding: "binary",
-        });
+    for (const file of x2t.FS.readdir(dir)) {
+      if (file === "." || file === "..") {
+        continue;
       }
-    } catch (err) {
-      console.error(err);
+
+      const path = `${dir}/${file}`;
+      const rel = relDir ? `${relDir}/${file}` : file;
+      const stat = x2t.FS.stat(path);
+      if (x2t.FS.isDir(stat.mode)) {
+        visit(path, rel);
+        continue;
+      }
+
+      files[prefix ? `${prefix}/${rel}` : rel] = x2t.FS.readFile(path, {
+        encoding: "binary",
+      });
     }
   };
 
@@ -788,6 +849,8 @@ function writeInputs({
   csvDelimiter,
   csvDelimiterChar,
 }: X2tConvertParams) {
+  fileFrom = assertSafeWorkingPath(fileFrom, "source path");
+  fileTo = assertSafeWorkingPath(fileTo, "target path");
   const isCsvSource =
     formatFrom === AvsFileType.AVS_FILE_SPREADSHEET_CSV ||
     fileFrom.toLowerCase().endsWith(".csv");
@@ -800,6 +863,7 @@ function writeInputs({
     m_bIsPDFA: formatTo === AvsFileType.AVS_FILE_CROSSPLATFORM_PDFA,
     m_bIsNoBase64: usePdfBinPath ? false : true,
     m_sFontDir: "/working/fonts/",
+    m_sTempDir: "/tmp/x2t-conversion",
   };
 
   if (!usePdfBinPath) {
@@ -817,7 +881,7 @@ function writeInputs({
 
   const content = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== null && v !== "")
-    .reduce((a, [k, v]) => a + `<${k}>${v}</${k}>\n`, "");
+    .reduce((a, [k, v]) => a + `<${k}>${escapeXml(v)}</${k}>\n`, "");
 
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <TaskQueueDataConvert
@@ -835,18 +899,21 @@ ${content}
   if (media) {
     cleanMedia();
     for (const [key, value] of Object.entries(media)) {
-      try {
-        const data = /\.(emf|svg|webp)$/i.test(key) ? transparentPng : value;
-        x2t.FS.writeFile("/working/" + key, data);
-      } catch (err) {
-        console.error(key, err);
-      }
+      const relativePath = normalizeRootRelativePath(
+        key,
+        "media",
+        "media path",
+      );
+      const data = /\.(emf|svg|webp)$/i.test(key) ? transparentPng : value;
+      const path = "/working/media/" + relativePath;
+      ensureDirectory(path.split("/").slice(0, -1).join("/"));
+      x2t.FS.writeFile(path, data);
     }
   }
 
   if (themes) {
     cleanThemes();
-    writeFileMap(themes);
+    writeFileMap(themes, "themes");
   }
 }
 
@@ -870,131 +937,144 @@ async function convert({
   csvDelimiterChar,
   staticResource,
 }: X2tConvertParams): Promise<X2tConvertResult> {
-  let preparedData = data;
-  if (preparedData) {
-    preparedData = await sanitizeDocxForX2t(preparedData, fileFrom);
-    preparedData = await rewriteZipFontNames(preparedData, fileFrom, fontAliases);
+  fileFrom = assertSafeFileName(fileFrom, "source file name");
+  fileTo = assertSafeFileName(fileTo, "target file name");
+  if (fileFrom === fileTo) {
+    throw new Error("x2t source and target file names must differ");
+  }
+  const reservedNames = new Set([
+    "params.xml",
+    "pdf.bin",
+    "media",
+    "fonts",
+    "themes",
+  ]);
+  if (
+    reservedNames.has(fileFrom.toLowerCase()) ||
+    reservedNames.has(fileTo.toLowerCase())
+  ) {
+    throw new Error("x2t source or target uses a reserved workspace name");
   }
   const fromPath = "/working/" + fileFrom;
   const toPath = "/working/" + fileTo;
-  const files = [fromPath, toPath, xmlPath];
-  if (pdfBin?.byteLength) {
-    files.push("/working/pdf.bin");
-  }
 
-  const needsPdfFonts =
-    Boolean(pdfBin?.byteLength) ||
-    formatTo === AvsFileType.AVS_FILE_CROSSPLATFORM_PDF ||
-    formatTo === AvsFileType.AVS_FILE_CROSSPLATFORM_PDFA;
+  try {
+    cleanupFiles();
+    let preparedData = data;
+    if (preparedData) {
+      preparedData = await sanitizeDocxForX2t(preparedData, fileFrom);
+      preparedData = await rewriteZipFontNames(
+        preparedData,
+        fileFrom,
+        fontAliases,
+      );
+    }
+    const needsPdfFonts =
+      Boolean(pdfBin?.byteLength) ||
+      formatTo === AvsFileType.AVS_FILE_CROSSPLATFORM_PDF ||
+      formatTo === AvsFileType.AVS_FILE_CROSSPLATFORM_PDFA;
 
-  let allFonts = fonts;
-  if (needsPdfFonts) {
-    const pdfFontsRoot = getWorkerStaticResource({
-      staticResource,
-    } as X2tConvertParams).x2t.pdfFonts.root;
-    const pdfFonts = await loadX2tPdfFonts(
-      self.location.origin,
-      pdfFontsRoot,
-    );
-    allFonts = { ...pdfFonts, ...fonts };
-  }
+    let allFonts = fonts;
+    if (needsPdfFonts) {
+      const pdfFontsRoot = getWorkerStaticResource({
+        staticResource,
+      } as X2tConvertParams).x2t.pdfFonts.root;
+      const pdfFonts = await loadX2tPdfFonts(
+        self.location.origin,
+        pdfFontsRoot,
+      );
+      allFonts = { ...pdfFonts, ...fonts };
+    }
 
-  writeFonts(allFonts);
-  writePdfBin(pdfBin);
+    writeFonts(allFonts);
+    writePdfBin(pdfBin);
 
-  writeInputs({
-    fileFrom: fromPath,
-    fileTo: toPath,
-    formatFrom,
-    formatTo,
-    data: preparedData,
-    media,
-    themes,
-    pdfBin,
-    csvEncoding,
-    csvDelimiter,
-    csvDelimiterChar,
-  });
-
-  if (
-    fileFrom.endsWith(".doc") ||
-    formatFrom == AvsFileType.AVS_FILE_DOCUMENT_DOC
-  ) {
-    const viaPath = fromPath + ".docx";
-    try {
-      const pathInfo = x2t.FS.analyzePath(viaPath);
-      if (pathInfo.exists) {
-        x2t.FS.unlink(viaPath);
-      }
-    } catch (err) {}
     writeInputs({
       fileFrom: fromPath,
-      fileTo: viaPath,
-      formatFrom: AvsFileType.AVS_FILE_DOCUMENT_DOC,
-      formatTo: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
-      data: null as never,
-    });
-    x2t.ccall("main1", ["number"], ["string"], [xmlPath]);
-    writeInputs({
-      fileFrom: viaPath,
       fileTo: toPath,
-      formatFrom: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+      formatFrom,
       formatTo,
-      data: null as never,
+      data: preparedData,
+      media,
+      themes,
+      pdfBin,
+      csvEncoding,
+      csvDelimiter,
+      csvDelimiterChar,
     });
-    files.push(viaPath);
-  }
 
-  try {
-    const pathInfo = x2t.FS.analyzePath(toPath);
-    if (pathInfo.exists) {
+    if (
+      fileFrom.endsWith(".doc") ||
+      formatFrom == AvsFileType.AVS_FILE_DOCUMENT_DOC
+    ) {
+      const viaPath = fromPath + ".docx";
+      if (viaPath === toPath) {
+        throw new Error(
+          "x2t DOC intermediate path must differ from the target path",
+        );
+      }
+      if (x2t.FS.analyzePath(viaPath).exists) {
+        x2t.FS.unlink(viaPath);
+      }
+      writeInputs({
+        fileFrom: fromPath,
+        fileTo: viaPath,
+        formatFrom: AvsFileType.AVS_FILE_DOCUMENT_DOC,
+        formatTo: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+        data: null as never,
+      });
+      executeConversion(fileFrom, `${fileFrom}.docx`);
+      writeInputs({
+        fileFrom: viaPath,
+        fileTo: toPath,
+        formatFrom: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+        formatTo,
+        data: null as never,
+      });
+    }
+
+    if (x2t.FS.analyzePath(toPath).exists) {
       x2t.FS.unlink(toPath);
     }
-  } catch (err) {}
 
-  try {
-    x2t.ccall("main1", ["number"], ["string"], [xmlPath]);
-  } catch (e) {
-    console.error("ccall", e);
-  }
+    executeConversion(fileFrom, fileTo);
 
-  let output: Uint8Array | null = null;
-  let readOutputError: SerializedWorkerError | undefined;
-  try {
-    output = x2t.FS.readFile(toPath);
-    if (output && fileTo === "Editor.bin" && fontAliases) {
-      output = restoreEditorBinFontNames(output, fontAliases);
+    let output: Uint8Array | null = null;
+    let readOutputError: SerializedWorkerError | undefined;
+    try {
+      output = x2t.FS.readFile(toPath);
+      if (output && fileTo === "Editor.bin" && fontAliases) {
+        output = restoreEditorBinFontNames(output, fontAliases);
+      }
+      if (output && hasOfficeZipExtension(fileTo) && fontExportAliases) {
+        const restored = await rewriteZipFontNames(
+          output.slice(0).buffer,
+          fileTo,
+          fontExportAliases,
+        );
+        output = new Uint8Array(restored);
+      }
+    } catch (e) {
+      console.error("[x2t.worker] read output failed:", e);
+      readOutputError = serializeWorkerError(e);
     }
-    if (output && hasOfficeZipExtension(fileTo) && fontExportAliases) {
-      const restored = await rewriteZipFontNames(
-        output.slice(0).buffer,
+
+    if (!output?.byteLength) {
+      throw new X2tWorkerError("x2t conversion produced no output", {
+        stage: "read-output",
+        fileFrom,
         fileTo,
-        fontExportAliases,
-      );
-      output = new Uint8Array(restored);
+        readOutputError,
+      });
     }
-  } catch (e) {
-    console.error("[x2t.worker] read output failed:", e);
-    readOutputError = serializeWorkerError(e);
+
+    const outputMedia = readMedia();
+    const outputThemes = readDirectoryFiles("/working/themes", "themes");
+
+    return { output, media: outputMedia, themes: outputThemes };
+  } finally {
+    cleanupFiles();
   }
-
-  if (!output) {
-    throw new X2tWorkerError("x2t conversion produced no output", {
-      stage: "read-output",
-      fileFrom,
-      fileTo,
-      readOutputError,
-    });
-  }
-
-  const outputMedia = readMedia();
-  const outputThemes = readDirectoryFiles("/working/themes", "themes");
-
-  setTimeout(() => {
-    cleanupFiles(files);
-  });
-
-  return { output, media: outputMedia, themes: outputThemes };
 }
 
 /**
@@ -1007,9 +1087,9 @@ interface WorkerMessage {
 }
 
 /**
- * @description 处理主线程发来的 worker 消息。
+ * @description 处理主线程发来的单条 worker 消息。
  */
-self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
+async function handleWorkerMessage(event: MessageEvent<WorkerMessage>) {
   const { id, type, payload } = event.data;
 
   try {
@@ -1021,13 +1101,19 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         /**
          * @description 使用 Transferable 返回大块二进制结果，降低复制成本。
          */
-        const transferables: Transferable[] = [];
-        if (result.output) {
-          transferables.push(result.output.buffer);
+        const transferableBuffers = new Set<ArrayBuffer>();
+        const addTransferable = (value: Uint8Array) => {
+          if (value.buffer instanceof ArrayBuffer) {
+            transferableBuffers.add(value.buffer);
+          }
+        };
+        if (result.output) addTransferable(result.output);
+        for (const fileMap of [result.media, result.themes]) {
+          Object.values(fileMap ?? {}).forEach((value) =>
+            addTransferable(value),
+          );
         }
-        Object.values(result.media).forEach((m) =>
-          transferables.push(m.buffer),
-        );
+        const transferables: Transferable[] = Array.from(transferableBuffers);
 
         self.postMessage(
           { id, type: "convert:done", payload: result },
@@ -1044,14 +1130,27 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
         });
     }
   } catch (error) {
+    const serializedError = serializeWorkerError(error);
     self.postMessage({
       id,
       type: "error",
-      error: error instanceof Error ? error.message : String(error),
-      errorDetails:
-        error instanceof X2tWorkerError ? error.details : undefined,
+      error: serializedError.message ?? serializedError.text,
+      errorName: serializedError.name,
+      errorStack: serializedError.stack,
+      errorDetails: error instanceof X2tWorkerError ? error.details : undefined,
     });
   }
+}
+
+/**
+ * @description x2t 复用同一个 WASM 实例和 /working MEMFS；必须串行执行，避免请求互删临时文件。
+ */
+let conversionQueue = Promise.resolve();
+self.onmessage = (event: MessageEvent<WorkerMessage>) => {
+  const run = () => handleWorkerMessage(event);
+  conversionQueue = conversionQueue.then(run, run).catch((error) => {
+    console.error("[x2t.worker] message queue recovery:", error);
+  });
 };
 
 /**

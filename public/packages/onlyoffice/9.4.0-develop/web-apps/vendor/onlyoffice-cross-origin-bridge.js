@@ -71,12 +71,32 @@
   }
 
   var frameEditorId = getFrameEditorId();
-  if (!frameEditorId) {
+  var parentOrigin = "";
+  try {
+    parentOrigin = new URL(window.parentOrigin).origin;
+  } catch (error) {
+    parentOrigin = "";
+  }
+  if (!frameEditorId || !parentOrigin) {
     return;
   }
   if (isSameOriginParent()) {
     return;
   }
+
+  function createBridgeInstanceId() {
+    var randomPart = "";
+    try {
+      var values = new Uint32Array(2);
+      window.crypto.getRandomValues(values);
+      randomPart = values[0].toString(36) + values[1].toString(36);
+    } catch (error) {
+      randomPart = Math.random().toString(36).slice(2);
+    }
+    return frameEditorId + "-" + Date.now().toString(36) + "-" + randomPart;
+  }
+
+  var bridgeInstanceId = createBridgeInstanceId();
 
   function post(message) {
     if (!window.parent || window.parent === window) {
@@ -86,8 +106,9 @@
       Object.assign({}, message, {
         source: BRIDGE_SOURCE,
         frameEditorId: frameEditorId,
+        bridgeInstanceId: bridgeInstanceId,
       }),
-      "*",
+      parentOrigin,
     );
   }
 
@@ -413,7 +434,9 @@
     }
     if (ArrayBuffer.isView(body)) {
       return Promise.resolve({
-        body: arrayBufferToBase64(body.buffer),
+        body: arrayBufferToBase64(
+          body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
+        ),
         bodyEncoding: "base64",
       });
     }
@@ -1817,9 +1840,12 @@
   window.addEventListener("message", function (event) {
     var message = event.data;
     if (
+      event.source !== window.parent ||
+      event.origin !== parentOrigin ||
       !message ||
       message.source !== BRIDGE_SOURCE ||
-      message.frameEditorId !== frameEditorId
+      message.frameEditorId !== frameEditorId ||
+      message.bridgeInstanceId !== bridgeInstanceId
     ) {
       return;
     }

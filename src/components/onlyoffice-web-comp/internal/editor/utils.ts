@@ -16,6 +16,42 @@ export function getFileExt(name: string) {
   return type.toLowerCase();
 }
 
+/** @description 从原始或 base64 Editor.bin 头识别实际文档类型。 */
+export function detectEditorBinFileType(
+  input: ArrayBuffer | ArrayBufferView,
+): "docx" | "xlsx" | "pptx" | undefined {
+  const bytes =
+    input instanceof ArrayBuffer
+      ? new Uint8Array(input)
+      : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  const decoder = new TextDecoder("ascii");
+  const detectSignature = (prefix: string) => {
+    if (prefix.startsWith("DOCY")) return "docx" as const;
+    if (prefix.startsWith("XLSY")) return "xlsx" as const;
+    if (prefix.startsWith("PPTY")) return "pptx" as const;
+    return undefined;
+  };
+
+  const rawType = detectSignature(decoder.decode(bytes.subarray(0, 4)));
+  if (rawType) return rawType;
+
+  const encodedPrefix = decoder
+    .decode(bytes.subarray(0, 32))
+    .replace(/\s/g, "");
+  const completeLength = encodedPrefix.length - (encodedPrefix.length % 4);
+  if (
+    completeLength >= 8 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(encodedPrefix.slice(0, completeLength))
+  ) {
+    try {
+      return detectSignature(atob(encodedPrefix.slice(0, completeLength)));
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 const x2tSourceFormatByExt: Record<string, AvsFileType> = {
   docx: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
   doc: AvsFileType.AVS_FILE_DOCUMENT_DOC,
@@ -233,7 +269,9 @@ function parseCsvText(text: string, delimiter: string): string[][] {
 }
 
 function serializeCsvRow(fields: string[], delimiter: string) {
-  return fields.map((field) => serializeCsvField(field, delimiter)).join(delimiter);
+  return fields
+    .map((field) => serializeCsvField(field, delimiter))
+    .join(delimiter);
 }
 
 function serializeCsvField(field: string, delimiter: string) {
@@ -286,7 +324,9 @@ export function isMultilineCsv(buffer: ArrayBuffer) {
     detectX2tCsvDelimiter(buffer, csvEncoding),
   );
   const text = decodeCsvBuffer(buffer, csvEncoding);
-  const physicalLines = text.split(/\r?\n/).filter((line) => line.length > 0).length;
+  const physicalLines = text
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0).length;
   const logicalRows = parseCsvText(text, delimiter).length;
   return physicalLines > logicalRows + 2;
 }
@@ -399,10 +439,7 @@ export function getX2tCsvConvertOptions(buffer: ArrayBuffer) {
  * @description 获取 x2t 导出格式；导出 pdf 等目标格式时需要源文档类型，否则会误用 CANVAS_WORD。
  * @param sourceFileType 源文档类型，例如 xlsx。
  */
-export function getX2tExportFormats(
-  fileType: string,
-  sourceFileType?: string,
-) {
+export function getX2tExportFormats(fileType: string, sourceFileType?: string) {
   const ext = normalizeX2tExportFileType(fileType);
   const source = sourceFileType ?? fileType;
   const formatTo =
@@ -500,7 +537,10 @@ export function extensionFromOutputFormat(outputFormat?: number): string {
 /**
  * @description 保证文档标题带正确后缀，供 OnlyOffice 内置「另存为」推导下载文件名。
  */
-export function ensureTitleWithExtension(title: string, fileType: string): string {
+export function ensureTitleWithExtension(
+  title: string,
+  fileType: string,
+): string {
   const ext = fileType.toLowerCase();
   if (!ext) {
     return title;

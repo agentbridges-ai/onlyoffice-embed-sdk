@@ -98,10 +98,7 @@ function isZipBytes(data: Uint8Array) {
   );
 }
 
-function createPlainTextOfficeFallback(
-  buffer: ArrayBuffer,
-  fileType: string,
-) {
+function createPlainTextOfficeFallback(buffer: ArrayBuffer, fileType: string) {
   switch (getDocumentType(fileType)) {
     case "word":
       return { buffer: createDocxFromText(buffer), fileType: "docx" };
@@ -169,7 +166,9 @@ type CoAuthoringLockBlock =
   | number
   | { guid?: string; [key: string]: unknown };
 
-function normalizeCoAuthoringLockBlocks(block: unknown): CoAuthoringLockBlock[] {
+function normalizeCoAuthoringLockBlocks(
+  block: unknown,
+): CoAuthoringLockBlock[] {
   if (Array.isArray(block)) {
     return block as CoAuthoringLockBlock[];
   }
@@ -408,7 +407,8 @@ function getCacheResponseMimeType(name: string, fallbackFileType: string) {
     return detectImageMimeForName(name);
   }
 
-  const filetype = getFileExt(name.replace(/^output\./, "")) || fallbackFileType;
+  const filetype =
+    getFileExt(name.replace(/^output\./, "")) || fallbackFileType;
   if (name === "Editor.bin") {
     return "application/octet-stream";
   }
@@ -461,7 +461,9 @@ async function fetchClipboardImage(input: string) {
 
   const data = new Uint8Array(await response.arrayBuffer());
   const headerMime = response.headers.get("Content-Type")?.split(";")[0] ?? "";
-  const mime = headerMime.startsWith("image/") ? headerMime : detectImageMime(data);
+  const mime = headerMime.startsWith("image/")
+    ? headerMime
+    : detectImageMime(data);
   if (!mime.startsWith("image/")) {
     return null;
   }
@@ -480,7 +482,12 @@ function detectImageMime(data: Uint8Array) {
   ) {
     return "image/png";
   }
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
+  if (
+    data.length >= 3 &&
+    data[0] === 0xff &&
+    data[1] === 0xd8 &&
+    data[2] === 0xff
+  ) {
     return "image/jpeg";
   }
   if (
@@ -569,7 +576,10 @@ function getArrayField(record: Record<string, unknown> | null, key: string) {
   return Array.isArray(value) ? value : undefined;
 }
 
-function getJsonArrayField(record: Record<string, unknown> | null, key: string) {
+function getJsonArrayField(
+  record: Record<string, unknown> | null,
+  key: string,
+) {
   const value = record?.[key];
   if (Array.isArray(value)) {
     return value;
@@ -696,7 +706,11 @@ function getBase64ByteLength(value: string) {
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
     return undefined;
   }
-  const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+  const padding = normalized.endsWith("==")
+    ? 2
+    : normalized.endsWith("=")
+      ? 1
+      : 0;
   return Math.floor((normalized.length * 3) / 4) - padding;
 }
 
@@ -724,7 +738,9 @@ function summarizeChangePacket(value: unknown) {
 
   return {
     kind: "binary-change",
-    declaredLength: Number.isFinite(declaredLength) ? declaredLength : undefined,
+    declaredLength: Number.isFinite(declaredLength)
+      ? declaredLength
+      : undefined,
     byteLength,
     byteLengthMatches:
       Number.isFinite(declaredLength) && byteLength != null
@@ -906,6 +922,7 @@ export class EditorServer {
   private participants: Participant[] = [];
   private syncChangesIndex = 0;
   private loadPromise: Promise<void> | null = null;
+  private loadGeneration = 0;
   private loadBlocked = false;
 
   private fileType: string = "docx";
@@ -934,13 +951,13 @@ export class EditorServer {
   /**
    * @description export() 调用 downloadAs("bin") 后等待 resolvePendingExport 完成。
    */
-  private pendingExport:
-    | {
-        resolve: (snapshot: ReturnType<EditorServer["getDocumentSnapshot"]>) => void;
-        reject: (error: Error) => void;
-        timer: number;
-      }
-    | null = null;
+  private pendingExport: {
+    resolve: (
+      snapshot: ReturnType<EditorServer["getDocumentSnapshot"]>,
+    ) => void;
+    reject: (error: Error) => void;
+    timer: number;
+  } | null = null;
 
   private options: ServerOptions = {};
   private officeXmlEventConfig: Required<OfficeXmlEventConfig> = {
@@ -978,8 +995,12 @@ export class EditorServer {
   private createLoadPromise(
     buffer: ArrayBuffer | (() => Promise<ArrayBuffer>),
     fileType: string,
+    generation: number,
   ) {
-    return this.loadDocument(buffer, fileType).catch((err) => {
+    return this.loadDocument(buffer, fileType, generation).catch((err) => {
+      if (generation !== this.loadGeneration) {
+        return;
+      }
       const error = err instanceof Error ? err : new Error(String(err));
       this.notifyLoadError(error);
       if (isOfficeXmlSizeLimitExceededError(error)) {
@@ -994,7 +1015,10 @@ export class EditorServer {
     try {
       this.options.onLoadError?.(error);
     } catch (callbackError) {
-      console.error("[EditorServer] onLoadError callback failed", callbackError);
+      console.error(
+        "[EditorServer] onLoadError callback failed",
+        callbackError,
+      );
     }
   }
 
@@ -1015,6 +1039,7 @@ export class EditorServer {
   }
 
   reset() {
+    this.loadGeneration += 1;
     if (this.pendingExport) {
       window.clearTimeout(this.pendingExport.timer);
       this.pendingExport.reject(new Error("Editor server reset"));
@@ -1054,12 +1079,22 @@ export class EditorServer {
     file: File,
     { fileType, fileName }: { fileType?: string; fileName?: string } = {},
   ) {
+    const generation = ++this.loadGeneration;
     this.fileType = fileType || getFileExt(file.name) || "docx";
-    const title = ensureTitleWithExtension(fileName || file.name, this.fileType);
+    const title = ensureTitleWithExtension(
+      fileName || file.name,
+      this.fileType,
+    );
     const documentType = getDocumentType(this.fileType);
     this.id = randomId();
     this.title = title;
     const buffer = await file.arrayBuffer();
+    if (generation !== this.loadGeneration) {
+      return {
+        id: this.id,
+        documentType,
+      };
+    }
     const sizeLimitError = this.getOfficeXmlSizeLimitError(
       buffer,
       this.fileType,
@@ -1074,7 +1109,11 @@ export class EditorServer {
       };
     }
 
-    this.loadPromise = this.createLoadPromise(buffer, this.fileType);
+    this.loadPromise = this.createLoadPromise(
+      buffer,
+      this.fileType,
+      generation,
+    );
 
     return {
       id: this.id,
@@ -1083,6 +1122,7 @@ export class EditorServer {
   }
 
   openNew(fileType?: string, fileName?: string) {
+    this.loadGeneration += 1;
     this.fileType = fileType || "docx";
     this.id = randomId();
     this.loadPromise = null;
@@ -1135,6 +1175,7 @@ export class EditorServer {
       loader?: (url: string) => Promise<ArrayBuffer>;
     } = {},
   ) {
+    const generation = ++this.loadGeneration;
     const rawTitle =
       fileName || decodeURIComponent(url.split("/").pop() || "Document");
     this.fileType = fileType || getFileExt(rawTitle) || "docx";
@@ -1142,7 +1183,11 @@ export class EditorServer {
     this.id = randomId();
     this.loadBlocked = false;
     this.title = ensureTitleWithExtension(rawTitle, this.fileType);
-    this.loadPromise = this.createLoadPromise(() => loader(url), this.fileType);
+    this.loadPromise = this.createLoadPromise(
+      () => loader(url),
+      this.fileType,
+      generation,
+    );
 
     return {
       id: this.id,
@@ -1319,7 +1364,9 @@ export class EditorServer {
       } catch (err) {
         window.clearTimeout(timer);
         this.pendingExport = null;
-        reject(err instanceof Error ? err : new Error("Failed to start export"));
+        reject(
+          err instanceof Error ? err : new Error("Failed to start export"),
+        );
       }
     });
   }
@@ -1330,9 +1377,14 @@ export class EditorServer {
   private async loadDocument(
     buffer: ArrayBuffer | (() => Promise<ArrayBuffer>),
     fileType: string,
+    generation: number,
   ) {
     if (typeof buffer == "function") {
       buffer = await buffer();
+    }
+
+    if (generation !== this.loadGeneration) {
+      return;
     }
 
     const bytes = new Uint8Array(buffer);
@@ -1360,8 +1412,12 @@ export class EditorServer {
       ));
     }
 
-    if (!output) {
+    if (!output?.byteLength) {
       throw new Error(`Failed to convert ${sourceFileType} file`);
+    }
+
+    if (generation !== this.loadGeneration) {
+      return;
     }
 
     if (this.urlsMap.size > 0) {
@@ -1377,7 +1433,10 @@ export class EditorServer {
     }
   }
 
-  private async convertBufferToEditorBin(buffer: ArrayBuffer, fileType: string) {
+  private async convertBufferToEditorBin(
+    buffer: ArrayBuffer,
+    fileType: string,
+  ) {
     this.assertOfficeXmlSizeWithinLimit(buffer, fileType);
     buffer = await this.rewriteUnsupportedPptxImages(buffer, fileType);
     const { formatFrom, formatTo } = getX2tConvertFormats(fileType);
@@ -1398,7 +1457,10 @@ export class EditorServer {
     };
   }
 
-  private assertOfficeXmlSizeWithinLimit(buffer: ArrayBuffer, fileType: string) {
+  private assertOfficeXmlSizeWithinLimit(
+    buffer: ArrayBuffer,
+    fileType: string,
+  ) {
     const error = this.getOfficeXmlSizeLimitError(buffer, fileType);
     if (error) {
       throw error;
@@ -1471,7 +1533,7 @@ export class EditorServer {
         ? await rasterizeSvgToPng(source)
         : /\.webp$/i.test(entry.name)
           ? await rasterizeWebpToPng(source)
-        : TRANSPARENT_PNG;
+          : TRANSPARENT_PNG;
 
       entryReplacements.set(pngName, {
         data: pngData,
@@ -1638,11 +1700,17 @@ export class EditorServer {
     return Boolean(targetExt && targetExt !== "bin");
   }
 
-  private async convertEditorBinToOutput(binData: Uint8Array, filetype: string) {
+  private async convertEditorBinToOutput(
+    binData: Uint8Array,
+    filetype: string,
+  ) {
     binData = this.getExportSafeEditorBin(binData);
     const media = this.getExportSafeMedia();
     const themes = this.getStoredThemes();
-    const { formatFrom, formatTo } = getX2tExportFormats(filetype, this.fileType);
+    const { formatFrom, formatTo } = getX2tExportFormats(
+      filetype,
+      this.fileType,
+    );
     const result = await converter.convert(
       {
         data: binData.slice().buffer,
@@ -1765,9 +1833,7 @@ export class EditorServer {
       return input;
     }
 
-    return new Uint8Array(
-      await this.convertEditorBinToOutput(input, filetype),
-    );
+    return new Uint8Array(await this.convertEditorBinToOutput(input, filetype));
   }
 
   private resolveDownloadFileType(cmd: Record<string, unknown> | null) {
@@ -2145,7 +2211,8 @@ export class EditorServer {
         return new Response("Not Found", { status: 404 });
       }
 
-      const filetype = getFileExt(outputName.replace(/^output\./, "")) || this.fileType;
+      const filetype =
+        getFileExt(outputName.replace(/^output\./, "")) || this.fileType;
       const downloadName = getCacheDownloadName(
         outputName,
         this.title,

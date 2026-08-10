@@ -19,6 +19,7 @@ import { Route as DocsIndexRouteImport } from './app/docs/index'
 import { Route as DocsSlugRouteImport } from './app/docs/$slug'
 import { Route as DocsDemosRouteImport } from './app/docs/demos'
 import { Route as E2eOnlyofficeFactoryRouteImport } from './app/e2e/onlyoffice-factory'
+import { Route as E2eRuntimeRegressionsRouteImport } from './app/e2e/runtime-regressions'
 import { Route as DocsDemosIndexRouteImport } from './app/docs/demos/index'
 import { Route as DocsDemosMultiRouteImport } from './app/docs/demos/multi'
 import { Route as DocsDemosSingleRouteImport } from './app/docs/demos/single'
@@ -73,6 +74,11 @@ const E2eOnlyofficeFactoryRoute = E2eOnlyofficeFactoryRouteImport.update({
   path: '/onlyoffice-factory',
   getParentRoute: () => E2eRoute,
 } as any)
+const E2eRuntimeRegressionsRoute = E2eRuntimeRegressionsRouteImport.update({
+  id: '/runtime-regressions',
+  path: '/runtime-regressions',
+  getParentRoute: () => E2eRoute,
+} as any)
 const DocsDemosIndexRoute = DocsDemosIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/docs/$slug': typeof DocsSlugRoute
   '/docs/demos': typeof DocsDemosRouteWithChildren
   '/e2e/onlyoffice-factory': typeof E2eOnlyofficeFactoryRoute
+  '/e2e/runtime-regressions': typeof E2eRuntimeRegressionsRoute
   '/docs/': typeof DocsIndexRoute
   '/docs/demos/multi': typeof DocsDemosMultiRoute
   '/docs/demos/single': typeof DocsDemosSingleRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/subframe': typeof SubframeRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/e2e/onlyoffice-factory': typeof E2eOnlyofficeFactoryRoute
+  '/e2e/runtime-regressions': typeof E2eRuntimeRegressionsRoute
   '/docs': typeof DocsIndexRoute
   '/docs/demos/multi': typeof DocsDemosMultiRoute
   '/docs/demos/single': typeof DocsDemosSingleRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/docs/$slug': typeof DocsSlugRoute
   '/docs/demos': typeof DocsDemosRouteWithChildren
   '/e2e/onlyoffice-factory': typeof E2eOnlyofficeFactoryRoute
+  '/e2e/runtime-regressions': typeof E2eRuntimeRegressionsRoute
   '/docs/': typeof DocsIndexRoute
   '/docs/demos/multi': typeof DocsDemosMultiRoute
   '/docs/demos/single': typeof DocsDemosSingleRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/docs/demos'
     | '/e2e/onlyoffice-factory'
+    | '/e2e/runtime-regressions'
     | '/docs/'
     | '/docs/demos/multi'
     | '/docs/demos/single'
@@ -158,6 +168,7 @@ export interface FileRouteTypes {
     | '/subframe'
     | '/docs/$slug'
     | '/e2e/onlyoffice-factory'
+    | '/e2e/runtime-regressions'
     | '/docs'
     | '/docs/demos/multi'
     | '/docs/demos/single'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/docs/demos'
     | '/e2e/onlyoffice-factory'
+    | '/e2e/runtime-regressions'
     | '/docs/'
     | '/docs/demos/multi'
     | '/docs/demos/single'
@@ -260,6 +272,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof E2eOnlyofficeFactoryRouteImport
       parentRoute: typeof E2eRoute
     }
+    '/e2e/runtime-regressions': {
+      id: '/e2e/runtime-regressions'
+      path: '/runtime-regressions'
+      fullPath: '/e2e/runtime-regressions'
+      preLoaderRoute: typeof E2eRuntimeRegressionsRouteImport
+      parentRoute: typeof E2eRoute
+    }
     '/docs/demos/': {
       id: '/docs/demos/'
       path: '/'
@@ -316,10 +335,12 @@ const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
 
 interface E2eRouteChildren {
   E2eOnlyofficeFactoryRoute: typeof E2eOnlyofficeFactoryRoute
+  E2eRuntimeRegressionsRoute: typeof E2eRuntimeRegressionsRoute
 }
 
 const E2eRouteChildren: E2eRouteChildren = {
   E2eOnlyofficeFactoryRoute: E2eOnlyofficeFactoryRoute,
+  E2eRuntimeRegressionsRoute: E2eRuntimeRegressionsRoute,
 }
 
 const E2eRouteWithChildren = E2eRoute._addFileChildren(E2eRouteChildren)
