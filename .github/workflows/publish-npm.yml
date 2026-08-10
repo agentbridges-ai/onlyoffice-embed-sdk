@@ -27,7 +27,6 @@ jobs:
     env:
       CI: true
       SDK_VERIFY_REQUIRE_BUN: "1"
-      SDK_VERIFY_TARBALL_DIR: ${{ runner.temp }}/verified-sdk-package
 
     steps:
       - name: Checkout tagged commit
@@ -178,6 +177,8 @@ jobs:
 
       - name: Build, pack, and verify the publish artifact
         id: verify
+        env:
+          SDK_VERIFY_TARBALL_DIR: ${{ runner.temp }}/verified-sdk-package
         run: node scripts/verify-sdk-package.mjs
 
       - name: Upload verified publish artifact

@@ -50,7 +50,6 @@ jobs:
     env:
       CI: true
       SDK_VERIFY_REQUIRE_BUN: "1"
-      SDK_VERIFY_TARBALL_DIR: ${{ runner.temp }}/verified-sdk-package
 
     steps:
       - name: Checkout
@@ -87,6 +86,8 @@ jobs:
 
       - name: Verify SDK tarball and external consumers
         id: verify
+        env:
+          SDK_VERIFY_TARBALL_DIR: ${{ runner.temp }}/verified-sdk-package
         run: node scripts/verify-sdk-package.mjs
 
       - name: Upload the verified review tarball
