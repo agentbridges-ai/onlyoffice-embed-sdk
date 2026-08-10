@@ -288,7 +288,7 @@ print_post_upgrade_reminder() {
     · 若升级了 x2t WASM，同步 public/.../x2t/
 
   站点路径
-    · const/index.ts 中 STATIC_RESOURCE / NEXT_PUBLIC_APP_ROOT 与导出目录一致
+    · const/index.ts 中 STATIC_RESOURCE 根路径与导出目录一致
 
 EOF
 }

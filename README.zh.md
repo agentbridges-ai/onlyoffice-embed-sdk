@@ -1,8 +1,8 @@
-# OnlyOffice Web Comp
+# OnlyOffice Embed SDK
 
 > 📖 [English](README.md) | 中文
 
-🌐 **在线演示**: [https://onlyoffice-web-comp.vercel.app/](https://onlyoffice-web-comp.vercel.app/)
+🌐 **在线演示**: [https://onlyoffice.agent-bridges.com/](https://onlyoffice.agent-bridges.com/)
 
 基于 OnlyOffice 静态 SDK 的浏览器端文档处理方案：在客户端完成 Word / Excel / PowerPoint 的查看、编辑与转换，**无需 Document Server**。
 
@@ -10,12 +10,12 @@
 
 | 部分 | 路径 | 说明 |
 |------|------|------|
-| **组件库** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | 可复用的 Web 端编辑器封装 + Markdown 文档源 |
-| **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | Next.js 主页、文档站、在线示例 |
+| **SDK** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | OnlyOffice Embed SDK 运行时封装 + Markdown 文档源 |
+| **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start 文件路由 + Cloudflare Worker |
 
 ## 项目定位
 
-这个项目目前不是一个 `npm install` 后直接引入的包，而是一个浏览器端 OnlyOffice 集成模板：可复用的运行时代码在 `src/components/onlyoffice-web-comp/`，仓库同时包含这套运行时需要的 OnlyOffice SDK / x2t 静态资源。
+这个项目目前不是一个 `npm install` 后直接引入的包，而是一个浏览器端 OnlyOffice Embed SDK 集成模板：可复用的运行时代码在 `src/components/onlyoffice-web-comp/`，仓库同时包含这套运行时需要的 OnlyOffice SDK / x2t 静态资源。
 
 如果你希望在自己的 Web 项目里接入 OnlyOffice，并且不想部署 OnlyOffice Document Server，可以把这里当作一套可复制的工程实现。演示站点也是项目的一部分，目的是让你直接参考一个已经跑通的编辑器生命周期，而不是只看零散 API 片段。
 
@@ -23,7 +23,7 @@
 
 实际接入可以按这个路径做：
 
-1. 复制 [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) 到你的项目源码目录。
+1. 复制 [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) 到你的项目源码目录，作为 OnlyOffice Embed SDK 运行时。
 2. 复制 [`public/packages/onlyoffice/`](public/packages/onlyoffice/) 静态资源到你的项目 `public/packages/onlyoffice/` 目录。
 3. 参考 [`src/features/demo/office-preview-page.tsx`](src/features/demo/office-preview-page.tsx) 构造自己的界面：准备编辑器容器，维护一个 `OnlyOfficeManager` 实例，按需调用 `openDocument`、`downloadExport`、`toggleReadOnly`，并在页面卸载时销毁 manager。需要从父页面调用编辑器 Automation API 时，可通过 `createConnector()` 获取 Developer Edition Connector。
 
@@ -39,11 +39,11 @@
 
 ## 快速体验
 
-1. 访问 [在线演示](https://onlyoffice-web-comp.vercel.app/) 或本地启动：
+1. 访问 [在线演示](https://onlyoffice.agent-bridges.com/) 或本地启动：
 
 ```bash
 git clone <repository-url>
-cd onlyoffice-web-comp
+cd onlyoffice-embed-sdk
 pnpm install
 pnpm dev
 # http://localhost:3001
@@ -54,7 +54,7 @@ pnpm dev
 | 路由 | 说明 |
 |------|------|
 | `/` | 产品主页 |
-| `/docs` | 组件库文档（直接渲染 Markdown） |
+| `/docs` | OnlyOffice Embed SDK 文档（直接渲染 Markdown） |
 | `/docs/demos/single` | 单实例在线示例 |
 | `/docs/demos/multi` | 多实例 Tab 在线示例 |
 
@@ -62,11 +62,11 @@ pnpm dev
 
 旧路由 `/examples` 会重定向到单实例示例；`/multi` 会重定向到多实例示例。
 
-## 组件库文档
+## OnlyOffice Embed SDK 文档
 
 **API 与接入说明不在本 README 重复**，请阅读组件库文档：
 
-- **入口**：[组件库 README（中文）](src/components/onlyoffice-web-comp/readme.zh.md)
+- **入口**：[OnlyOffice Embed SDK README（中文）](src/components/onlyoffice-web-comp/readme.zh.md)
 - **概述**：[docs/概述.md](src/components/onlyoffice-web-comp/docs/概述.md)
 
 | 文档 | 内容 |
@@ -91,40 +91,43 @@ import { OnlyOfficeManager, FILE_TYPE, ONLYOFFICE_ID } from "@/components/onlyof
 ```
 onlyoffice-web-comp/
 ├── src/
-│   ├── app/                              # Next.js 路由
-│   │   ├── page.tsx                      # 主页
-│   │   ├── docs/                         # 文档站
-│   │   │   ├── page.tsx                  # /docs（概述 md）
-│   │   │   ├── [slug]/page.tsx           # /docs/*
+│   ├── app/                              # TanStack Start 文件路由
+│   │   ├── __root.tsx                    # HTML 壳与全局元数据
+│   │   ├── index.tsx                     # 主页
+│   │   ├── docs/                         # 文档路由
+│   │   │   ├── index.tsx                  # /docs 概述
+│   │   │   ├── $slug.tsx                  # /docs/* Markdown 页面
 │   │   │   └── demos/                    # /docs/demos/single|multi
-│   │   └── examples/                     # → 重定向至单实例示例
+│   │   └── examples.tsx                  # → 重定向至单实例示例
 │   ├── features/
 │   │   ├── docs/                         # 文档壳、Markdown 渲染、site-map
 │   │   ├── demo/                         # 在线演示组件
 │   │   ├── marketing/                    # 着陆页
 │   │   └── shell/                        # 站点 Header / Footer / Layout
 │   └── components/
-│       └── onlyoffice-web-comp/          # SDK 封装 + docs/*.md 文档源
+│       └── onlyoffice-web-comp/          # OnlyOffice Embed SDK 封装 + docs/*.md 文档源
 ├── public/                               # OnlyOffice SDK 静态资源
 └── ...
 ```
 
-文档页直接读取 `src/components/onlyoffice-web-comp/docs/` 下的 Markdown；示例 Tab 内嵌 `src/features/demo/` 的可交互编辑器。
+文档页直接读取 `src/components/onlyoffice-web-comp/docs/` 下的 Markdown；示例 Tab 内嵌 `src/features/demo/` 的可交互 OnlyOffice Embed SDK 编辑器。
 
 ## 技术栈
 
 - **OnlyOffice SDK**：文档编辑核心
 - **x2t + WebAssembly**：格式转换
-- **Next.js 15 + React 19**：演示应用
+- **TanStack Start + React 19**：SSR 与文件路由
+- **Cloudflare Workers**：生产运行时、自定义域名和响应头
 
 ## 部署
 
 ```bash
 pnpm install
 pnpm build
+pnpm run deploy
 ```
 
-可部署至 Vercel 或任意静态托管。演示地址：[https://onlyoffice-web-comp.vercel.app/](https://onlyoffice-web-comp.vercel.app/)
+应用通过 Wrangler 以 TanStack Start SSR Worker 部署。生产路由写在 `wrangler.jsonc`，包括 `onlyoffice.agent-bridges.com` 和隔离子帧使用的 12 个固定生肖子域名：`rat`、`ox`、`tiger`、`rabbit`、`dragon`、`snake`、`horse`、`goat`、`monkey`、`rooster`、`dog`、`pig`。项目不再使用 Vercel。
 
 ### 将 SDK 静态资源部署到 Cloudflare Pages CDN
 
@@ -140,10 +143,10 @@ npx wrangler pages deploy public/packages \
   --commit-dirty=true
 ```
 
-部署后资源地址应该类似：
+部署后使用固定的生产 Pages 域名：
 
 ```text
-https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
+https://onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js
 ```
 
 在运行时把 Pages origin 注册为静态资源根地址：
@@ -152,11 +155,22 @@ https://<deployment-id>.onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-dev
 import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
 
 OnlyOfficeManager.registerStaticResource({
-  cdnOrigin: "https://<deployment-id>.onlyoffice-embed-resource.pages.dev",
+  cdnOrigin: "https://onlyoffice-embed-resource.pages.dev",
 });
 ```
 
 `cdnOrigin` 对应上传后的 `public/packages` 根目录，不需要再追加 `/packages`。在 [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) 中修改 `buildStaticResource` 的 `cdnOrigin` 逻辑即可固定资源来源。Cloudflare Pages Direct Upload 支持用 Wrangler 上传目录；由于 SDK 文件数量较多，Dashboard 拖拽上传不太适合本仓库。
+
+### GitHub Actions 生产发布
+
+推送到 `main` 会运行 [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml)。通过类型检查和构建后，Workflow 会把 `public/packages` 发布到 `onlyoffice-embed-resource` Pages 项目，并发布提供 `onlyoffice.agent-bridges.com` 及 12 个 Subframe 子域名的 TanStack Start Worker。
+
+合并前请在仓库中配置以下 Secrets：
+
+- `CLOUDFLARE_API_TOKEN`：具备 Pages 和 Workers 发布权限的受限 Cloudflare API Token
+- `CLOUDFLARE_ACCOUNT_ID`：`40a503f1c86c028edfcd6f113c562b5b`
+
+应用使用固定的 Pages 资源地址 `https://onlyoffice-embed-resource.pages.dev`，不会引用部署专属的 ID 地址。
 
 ## 字体配置
 

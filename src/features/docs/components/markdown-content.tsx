@@ -4,7 +4,7 @@
  * 将组件库 Markdown 渲染为文档站 HTML，并改写 `./xx.md` 为站内路由。
  * 本页目录：右侧 sticky，由 h1/h2 自动生成；锚点：rehype-slug。
  */
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
@@ -84,7 +84,7 @@ const components: Components = {
 
     if (resolved?.startsWith("/")) {
       return (
-        <Link href={resolved} className="docs-md-link">
+        <Link to={resolved} className="docs-md-link">
           {children}
         </Link>
       );

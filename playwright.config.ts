@@ -6,8 +6,8 @@ const host = process.env.PLAYWRIGHT_HOST ?? "127.0.0.1";
 const isCI = !!process.env.CI;
 const headless = true;
 const appCommand = isCI
-  ? `pnpm exec next start --port ${appPort} --hostname ${host}`
-  : `pnpm exec next dev --turbopack --port ${appPort} --hostname ${host}`;
+  ? `pnpm exec vite preview --host ${host} --port ${appPort}`
+  : `pnpm exec vite dev --host ${host} --port ${appPort}`;
 
 export default defineConfig({
   testDir: "./tests/e2e/specs",

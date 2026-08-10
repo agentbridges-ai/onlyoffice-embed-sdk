@@ -1,0 +1,64 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "onlyoffice-embed-sdk",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+  "routes": [
+    {
+      "pattern": "onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "rat.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "ox.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "tiger.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "rabbit.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "dragon.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "snake.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "horse.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "goat.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "monkey.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "rooster.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "dog.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "pig.onlyoffice.agent-bridges.com",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

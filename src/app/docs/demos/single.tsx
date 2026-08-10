@@ -1,15 +1,18 @@
-import type { Metadata } from "next";
+import { createFileRoute } from "@tanstack/react-router";
 import { FILE_TYPE } from "@/components/onlyoffice-web-comp";
-import { OfficePreviewPage } from "@/features/demo/office-preview-page";
 import { DocsDemoPage } from "@/features/docs/components/docs-demo-page";
 import { readCompDoc } from "@/features/docs/lib/server";
+import { OfficePreviewPage } from "@/features/demo/office-preview-page";
 
-export const metadata: Metadata = {
-  title: "单实例示例 — OnlyOffice Web Comp",
-};
+export const Route = createFileRoute("/docs/demos/single")({
+  head: () => ({
+    meta: [{ title: "单实例示例 — OnlyOffice Embed SDK" }],
+  }),
+  component: DocsDemosSinglePage,
+});
 
-export default async function DocsDemosSinglePage() {
-  const content = await readCompDoc("单实例示例.md");
+function DocsDemosSinglePage() {
+  const content = readCompDoc("单实例示例.md");
 
   return (
     <DocsDemoPage content={content} marker="single">

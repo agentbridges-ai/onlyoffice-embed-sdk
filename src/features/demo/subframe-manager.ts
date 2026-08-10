@@ -468,6 +468,10 @@ export class SubframeManager implements MultiInstanceManager {
     await this.request("set-theme", { theme });
   }
 
+  async toggleLanguage() {
+    return (await this.request("toggle-language")) as string;
+  }
+
   getEditor() {
     return this.editorProxy;
   }
@@ -528,14 +532,23 @@ export function getSubframeOrigin(instanceHost: string) {
     hostname.endsWith(".localhost") ||
     /^(?:127\.0\.0\.1|0\.0\.0\.0)$/.test(hostname)
   ) {
-    current.hostname = `${safeHost}.b.localhost`;
+    current.hostname = `${safeHost}.onlyoffice.localhost`;
     return current.origin;
   }
 
-  const domainParts = hostname.split(".");
-  const baseDomain = domainParts.length > 1
-    ? domainParts.slice(-2).join(".")
-    : hostname;
-  current.hostname = `${safeHost}.b.${baseDomain}`;
+  const rootHost =
+    hostname === "onlyoffice.agent-bridges.com" ||
+    hostname.endsWith(".onlyoffice.agent-bridges.com")
+      ? "onlyoffice.agent-bridges.com"
+      : (() => {
+          const domainParts = hostname.split(".");
+          const baseDomain =
+            domainParts.length > 1
+              ? domainParts.slice(-2).join(".")
+              : hostname;
+          return `onlyoffice.${baseDomain}`;
+        })();
+
+  current.hostname = `${safeHost}.${rootHost}`;
   return current.origin;
 }

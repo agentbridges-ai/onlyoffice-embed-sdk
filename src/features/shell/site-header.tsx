@@ -4,8 +4,7 @@
  * 站点顶栏：桌面端横向导航；移动端左右布局（Logo | 菜单），
  * 展开时为全屏 fixed 合成层（100dvh）。导航项见 {@link ./site-nav.ts}。
  */
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrandLogo } from "./brand-logo";
@@ -64,7 +63,7 @@ function NavLinks({
         return (
           <Link
             key={item.href}
-            href={item.href}
+            to={item.href}
             onClick={onNavigate}
             className={linkClass}
           >
@@ -148,7 +147,7 @@ function MobileMenuLayer({
 }
 
 export function SiteHeader() {
-  const pathname = usePathname() ?? "/";
+  const pathname = useLocation().pathname;
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {

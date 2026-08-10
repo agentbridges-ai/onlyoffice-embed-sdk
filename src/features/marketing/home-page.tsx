@@ -29,7 +29,7 @@ const FEATURES = [
 ] as const;
 
 const STEPS = [
-  { id: 1, title: "安装", body: "将 OnlyOffice Web Comp 引入你的前端项目。" },
+  { id: 1, title: "安装", body: "将 OnlyOffice Embed SDK 引入你的前端项目。" },
   { id: 2, title: "初始化", body: "调用 initializeOnlyOffice 加载静态 SDK。" },
   { id: 3, title: "挂载", body: "创建容器并通过 OnlyOfficeManager 打开文档。" },
 ] as const;
@@ -80,7 +80,7 @@ export function HomePage() {
               集成到你的 Web 应用
             </h1>
             <p className="mt-6 max-w-lg text-[15px] leading-relaxed text-neutral-600">
-              OnlyOffice Web Comp 是一组面向 Web 的 UI 组件，不依赖于后端纯前端实现。帮助你在应用中嵌入
+              OnlyOffice Embed SDK 是一套面向 Web 的浏览器端编辑能力，不依赖后端即可帮助你嵌入
               Word、Excel、PPT 编辑器，实现查看、编辑与导出。
             </p>
             <div className="mt-9 flex flex-wrap gap-2">
@@ -101,7 +101,7 @@ export function HomePage() {
       <section className="border-b border-neutral-200 py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="mb-10 max-w-xl">
-            <SiteSectionTitle>为什么选择 Web Comp</SiteSectionTitle>
+            <SiteSectionTitle>为什么选择 OnlyOffice Embed SDK</SiteSectionTitle>
             <p className="mt-2 text-[14px] text-neutral-600">
               面向前端工程化场景设计，API 清晰、实例隔离、可嵌入文档与示例页。
             </p>

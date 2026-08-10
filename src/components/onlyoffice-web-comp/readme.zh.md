@@ -1,8 +1,8 @@
-# OnlyOffice Web Comp
+# OnlyOffice Embed SDK
 
 > 📖 [English](readme.md) | 中文
 
-基于 OnlyOffice 静态 SDK 的 **Web 端文档编辑组件库**，支持 Word / Excel / PowerPoint 的在线编辑、只读预览、导出与 x2t 格式转换。**无需自建 Document Server**，只需托管 SDK 静态资源。
+基于 OnlyOffice 静态 SDK 的 **OnlyOffice Embed SDK**，支持 Word / Excel / PowerPoint 的在线编辑、只读预览、导出与 x2t 格式转换。**无需自建 Document Server**，只需托管 SDK 静态资源。
 
 > 本文档为**入口页**。完整说明见 [`docs/`](./docs/概述.md)。演示站点会直接渲染本目录下的 Markdown，对应路由 `/docs`。
 
@@ -74,7 +74,7 @@ await OnlyOfficeManager.createWithFile({
 
 ## 本仓库中的演示
 
-`docs/` 下的 Markdown 由演示站点渲染；示例页内嵌可交互编辑器。
+`docs/` 下的 Markdown 由演示站点渲染；示例页内嵌可交互的 OnlyOffice Embed SDK 编辑器。
 
 | 路由 | 说明 |
 |------|------|

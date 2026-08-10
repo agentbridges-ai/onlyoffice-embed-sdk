@@ -53,6 +53,7 @@ export type SubframeRequestAction =
   | "open"
   | "set-read-only"
   | "set-theme"
+  | "toggle-language"
   | "download"
   | "print-logs"
   | "editor"

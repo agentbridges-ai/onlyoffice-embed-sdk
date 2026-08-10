@@ -1,19 +1,15 @@
 "use client";
 
 /**
- * 单实例演示页：OnlyOfficeManager 门面 + 工具栏（上传/导出/主题/语言/只读）。
+ * 单实例演示页：独立 Subframe + RPC 工具栏（上传/导出/主题/语言/只读）。
  * 文档说明见 `onlyoffice-web-comp/docs/单实例示例.md`。
  */
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
-  ONLYOFFICE_CONTAINER_CONFIG,
-  ONLYOFFICE_ID,
   ONLYOFFICE_LANG_KEY,
   OFFICE_XML_EVENT_CONFIG,
   OFFICE_THEME_OPTIONS,
   DEFAULT_OFFICE_THEME,
-  OnlyOfficeManager,
-  editorManagerFactory,
   type FileType,
   type OfficeTheme,
 } from "@/components/onlyoffice-web-comp";
@@ -36,12 +32,15 @@ import {
   createConnectorDemo,
   type ConnectorDemo,
 } from "./connector-demo";
+import { CHINESE_ZODIAC_SLOTS } from "./chinese-zodiac-slots";
 import {
   applyDemoResourceMode,
   getDemoResourceState,
   ResourceSwitcher,
   subscribeDemoResourceChange,
 } from "./resource-switcher";
+import { getSubframeOrigin, SubframeManager } from "./subframe-manager";
+import { SUBFRAME_EDITOR_CONTAINER_ID as SUBFRAME_CONTAINER_ID } from "./subframe-protocol";
 
 type OfficePreviewPageProps = {
   title: string;
@@ -70,13 +69,28 @@ function LoadingOverlay() {
   );
 }
 
-const OnlyOfficeHost = memo(function OnlyOfficeHost() {
+const OnlyOfficeSubframeHost = memo(function OnlyOfficeSubframeHost({
+  src,
+  title,
+  onFrame,
+  onLoad,
+}: {
+  src: string;
+  title: string;
+  onFrame: (frame: HTMLIFrameElement | null) => void;
+  onLoad: () => void;
+}) {
   return (
-    <div
-      className={`${ONLYOFFICE_CONTAINER_CONFIG.PARENT_CLASS_NAME} absolute inset-0`}
-    >
-      <div id={ONLYOFFICE_ID} className="absolute inset-0" />
-    </div>
+    <iframe
+      ref={onFrame}
+      src={src}
+      title={title}
+      data-onlyoffice-subframe="true"
+      data-onlyoffice-instance-id="single-editor"
+      data-onlyoffice-zodiac="rat"
+      className="absolute inset-0 h-full w-full border-0"
+      onLoad={onLoad}
+    />
   );
 });
 
@@ -99,8 +113,11 @@ export function OfficePreviewPage({
   embedded = false,
 }: OfficePreviewPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const managerRef = useRef<OnlyOfficeManager | null>(null);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const managerRef = useRef<SubframeManager | null>(null);
   const connectorRef = useRef<ConnectorDemo | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [frameReady, setFrameReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [readOnly, setReadOnly] = useState(false);
@@ -125,9 +142,14 @@ export function OfficePreviewPage({
   const [cdnOrigin, setCdnOrigin] = useState(
     () => getDemoResourceState().cdnOrigin,
   );
-  const [resourceRevision, setResourceRevision] = useState(0);
+  const [resourceMode, setResourceMode] = useState(
+    () => getDemoResourceState().mode,
+  );
+  const [resourceRevision, setResourceRevision] = useState(
+    () => getDemoResourceState().revision,
+  );
 
-  const replaceConnector = (manager: OnlyOfficeManager) => {
+  const replaceConnector = (manager: SubframeManager) => {
     if (connectorRef.current?.isConnected) {
       connectorRef.current.disconnect();
     }
@@ -136,10 +158,39 @@ export function OfficePreviewPage({
     return connector;
   };
 
+  const handleFrame = useCallback((frame: HTMLIFrameElement | null) => {
+    frameRef.current = frame;
+    if (frame) {
+      managerRef.current?.attachFrame(frame);
+    } else {
+      setFrameReady(false);
+      managerRef.current?.detachFrame();
+    }
+  }, []);
+
+  const handleFrameLoad = useCallback(() => {
+    setFrameReady(true);
+    const frame = frameRef.current;
+    if (frame) managerRef.current?.attachFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      managerRef.current?.handleMessage(event);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   useEffect(
     () =>
       subscribeDemoResourceChange((state) => {
         setCdnOrigin(state.cdnOrigin);
+        setResourceMode(state.mode);
         setLoading(true);
         if (connectorRef.current?.isConnected) {
           connectorRef.current.disconnect();
@@ -147,7 +198,7 @@ export function OfficePreviewPage({
         connectorRef.current = null;
         managerRef.current?.destroy();
         managerRef.current = null;
-        editorManagerFactory.destroy(ONLYOFFICE_ID);
+        setFrameReady(false);
         setActiveFileName(defaultFileName);
         setConnectorMessage(null);
         setResourceRevision(state.revision);
@@ -156,94 +207,87 @@ export function OfficePreviewPage({
   );
 
   useEffect(() => {
-    let unsubscribeLoading: (() => void) | undefined;
+    if (!frameReady || !frameRef.current) return;
+
     let disposed = false;
-    let ownedManager: OnlyOfficeManager | null = null;
-    const containerId = ONLYOFFICE_ID;
+    const officeXmlEvent = {
+      isEnable: officeXmlEventEnabled,
+      limitBytes: officeXmlLimitMb * 1024 * 1024,
+    };
+    const manager = new SubframeManager({
+      containerId: SUBFRAME_CONTAINER_ID,
+      fileType,
+      defaultFileName,
+      readOnly,
+      theme: currentTheme,
+      officeXmlEvent,
+      instanceId: "single-editor",
+      targetOrigin: getSubframeOrigin(CHINESE_ZODIAC_SLOTS[0].id),
+      frame: frameRef.current,
+      onEvent: (event, payload) => {
+        if (event === "loading-change") {
+          setLoading(!!(payload as { loading?: boolean } | undefined)?.loading);
+        }
+        if (event === "office-xml-size-limit-exceeded") {
+          setError("文件过大，不支持解析");
+        }
+      },
+    });
+    managerRef.current = manager;
+    setEditorReady(false);
+    setLoading(true);
+    setError(null);
 
     const init = async () => {
-      editorManagerFactory.destroy(containerId);
-      const loadSession = editorManagerFactory.beginLoadSession(containerId);
-      setEditorReady(false);
-      const officeXmlEvent = {
-        isEnable: officeXmlEventEnabled,
-        limitBytes: officeXmlLimitMb * 1024 * 1024,
-      };
+      const document = initialFileUrl
+        ? {
+            fileName: defaultFileName,
+            file: await fetchPublicFile(initialFileUrl, defaultFileName),
+          }
+        : {
+            fileName: defaultFileName,
+            isNew: true,
+          };
+      if (disposed) return;
 
-      let manager: OnlyOfficeManager;
+      manager.configure({
+        defaultFileName,
+        readOnly,
+        theme: currentTheme,
+        officeXmlEvent,
+      });
+      await manager.openDocument(document);
+      if (disposed) return;
 
-      if (initialFileUrl) {
-        const file = await fetchPublicFile(initialFileUrl, defaultFileName);
-        if (disposed) return;
-
-        manager = await OnlyOfficeManager.createWithFile(
-          {
-            containerId,
-            fileType,
-            defaultFileName,
-            readOnly,
-            theme: currentTheme,
-            loadSession,
-            officeXmlEvent,
-          },
-          file,
-        );
-      } else {
-        manager = await OnlyOfficeManager.create({
-          containerId,
-          fileType,
-          defaultFileName,
-          readOnly,
-          theme: currentTheme,
-          loadSession,
-          officeXmlEvent,
-          user: {
-            id: "uid",
-            name: "demo-user",
-          },
-        });
-      }
-
-      if (
-        disposed ||
-        !editorManagerFactory.isLoadSessionActive(containerId, loadSession)
-      ) {
-        return;
-      }
-
-      ownedManager = manager;
-      managerRef.current = manager;
       replaceConnector(manager);
-      setCurrentLangState(manager.getLanguage());
+      setCurrentLangState(ONLYOFFICE_LANG_KEY.ZH);
       setCurrentThemeState(manager.getTheme());
       setEditorReady(true);
       setLoading(false);
-      unsubscribeLoading = manager.onLoadingChange(({ loading: next }) => {
-        setLoading(next);
-      });
+      setActiveFileName(document.fileName);
     };
 
     init().catch((err) => {
       if (disposed) return;
       setError("无法加载编辑器组件");
       setLoading(false);
-      console.error("Failed to initialize OnlyOffice:", err);
+      console.error("Failed to initialize OnlyOffice subframe:", err);
     });
 
     return () => {
       disposed = true;
-      unsubscribeLoading?.();
-      ownedManager?.destroy();
       if (connectorRef.current?.isConnected) {
         connectorRef.current.disconnect();
       }
       connectorRef.current = null;
-      editorManagerFactory.destroy(containerId);
-      managerRef.current = null;
+      manager.destroy();
+      if (managerRef.current === manager) {
+        managerRef.current = null;
+      }
       setEditorReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceRevision]);
+  }, [frameReady, resourceRevision]);
 
   useEffect(
     () => () => {
@@ -253,6 +297,22 @@ export function OfficePreviewPage({
     },
     [],
   );
+
+  const getSubframeSrc = () => {
+    if (!mounted) return "";
+
+    const url = new URL(
+      "/subframe",
+      getSubframeOrigin(CHINESE_ZODIAC_SLOTS[0].id),
+    );
+    url.searchParams.set("instance", "single-editor");
+    url.searchParams.set("resourceMode", resourceMode);
+    url.searchParams.set("resourceRevision", String(resourceRevision));
+    if (resourceMode === "cdn") {
+      url.searchParams.set("cdnOrigin", cdnOrigin);
+    }
+    return url.href;
+  };
 
   const runAction = async (action: () => Promise<void>, message: string) => {
     try {
@@ -285,14 +345,20 @@ export function OfficePreviewPage({
       if (!manager) {
         throw new Error("Editor is not initialized");
       }
-      await manager.openDocument({
-        fileName,
-        file,
+      manager.configure({
+        defaultFileName,
         readOnly: nextReadOnly,
+        theme: currentTheme,
         officeXmlEvent: {
           isEnable: officeXmlEventEnabled,
           limitBytes: officeXmlLimitMb * 1024 * 1024,
         },
+      });
+      await manager.openDocument({
+        fileName,
+        file,
+        isNew: !file,
+        readOnly: nextReadOnly,
       });
       replaceConnector(manager);
       setActiveFileName(fileName);
@@ -374,7 +440,7 @@ export function OfficePreviewPage({
       if (!manager) {
         throw new Error("Editor is not initialized");
       }
-      await manager.toggleReadOnly();
+      await manager.setReadOnly(!manager.getReadOnly());
       setReadOnly(manager.getReadOnly());
     }, "切换模式失败");
 
@@ -513,7 +579,14 @@ export function OfficePreviewPage({
       )}
 
       <div className="relative min-h-0 flex-1">
-        <OnlyOfficeHost />
+        {mounted && (
+          <OnlyOfficeSubframeHost
+            src={getSubframeSrc()}
+            title={`${title} · ${CHINESE_ZODIAC_SLOTS[0].emoji} ${CHINESE_ZODIAC_SLOTS[0].name}`}
+            onFrame={handleFrame}
+            onLoad={handleFrameLoad}
+          />
+        )}
         {loading && <LoadingOverlay />}
       </div>
 

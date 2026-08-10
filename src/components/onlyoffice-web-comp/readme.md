@@ -1,8 +1,8 @@
-# OnlyOffice Web Comp
+# OnlyOffice Embed SDK
 
 > 📖 English | [中文](readme.zh.md)
 
-A **browser-side document editor component library** built on the OnlyOffice static SDK. Supports online editing, read-only preview, export, and x2t conversion for Word, Excel, and PowerPoint. **No self-hosted Document Server required**—only static SDK assets on your site.
+The **OnlyOffice Embed SDK** is a browser-side document editor runtime built on the OnlyOffice static SDK. It supports online editing, read-only preview, export, and x2t conversion for Word, Excel, and PowerPoint. **No self-hosted Document Server required**—only static SDK assets on your site.
 
 > This file is an **entry point**. Full documentation lives in [`docs/`](./docs/概述.md). On the demo site, these Markdown files are rendered at `/docs`.
 
@@ -74,7 +74,7 @@ See [docs/核心API.md](./docs/核心API.md) for events, export, multi-instance,
 
 ## Demos in This Repo
 
-Documentation Markdown under `docs/` is rendered by the demo site. Live editors are embedded on the demo pages below.
+Documentation Markdown under `docs/` is rendered by the demo site. Live OnlyOffice Embed SDK editors are embedded on the demo pages below.
 
 | Route | Description |
 |-------|-------------|
