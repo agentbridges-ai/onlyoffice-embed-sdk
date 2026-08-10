@@ -161,6 +161,17 @@ OnlyOfficeManager.registerStaticResource({
 
 `cdnOrigin` 对应上传后的 `public/packages` 根目录，不需要再追加 `/packages`。在 [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) 中修改 `buildStaticResource` 的 `cdnOrigin` 逻辑即可固定资源来源。Cloudflare Pages Direct Upload 支持用 Wrangler 上传目录；由于 SDK 文件数量较多，Dashboard 拖拽上传不太适合本仓库。
 
+### GitHub Actions 生产发布
+
+推送到 `main` 会运行 [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml)。通过类型检查和构建后，Workflow 会把 `public/packages` 发布到 `onlyoffice-embed-resource` Pages 项目，清理旧的生产部署别名，并发布提供 `onlyoffice.agent-bridges.com` 及 12 个 Subframe 子域名的 TanStack Start Worker。
+
+合并前请在仓库中配置以下 Secrets：
+
+- `CLOUDFLARE_API_TOKEN`：具备 Pages 和 Workers 发布权限的受限 Cloudflare API Token
+- `CLOUDFLARE_ACCOUNT_ID`：`40a503f1c86c028edfcd6f113c562b5b`
+
+应用使用固定的 Pages 资源地址 `https://onlyoffice-embed-resource.pages.dev`。Cloudflare 内部仍可能为当前部署生成一个 ID 地址，但旧 ID 会由 Workflow 自动清理，应用不会引用这些地址。
+
 ## 字体配置
 
 自定义字体通过 **`__custom_font_registry__`** 注册，配合 **`ttf-to-catalog-font.mjs`** 生成 OnlyOffice catalog 线格式。完整步骤见组件库文档 **[字体配置](src/components/onlyoffice-web-comp/docs/字体配置.md)**。

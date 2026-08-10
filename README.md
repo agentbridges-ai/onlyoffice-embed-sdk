@@ -161,6 +161,17 @@ OnlyOfficeManager.registerStaticResource({
 
 `cdnOrigin` points to the uploaded `public/packages` root, so do not append `/packages`. Configure this resource origin in [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) by editing the `cdnOrigin` logic in `buildStaticResource`. Cloudflare Pages Direct Upload supports Wrangler folder uploads; dashboard drag-and-drop is less suitable for this repository because the SDK contains many files.
 
+### GitHub Actions production deployment
+
+Pushes to `main` run [`.github/workflows/deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml). After type checking and building, it deploys `public/packages` to the `onlyoffice-embed-resource` Pages project, removes stale production deployment aliases, and publishes the TanStack Start Worker serving `onlyoffice.agent-bridges.com` and its twelve Subframe hosts.
+
+Configure these repository secrets before merging:
+
+- `CLOUDFLARE_API_TOKEN`: a scoped Cloudflare API token with Pages and Workers deployment permissions
+- `CLOUDFLARE_ACCOUNT_ID`: `40a503f1c86c028edfcd6f113c562b5b`
+
+The application uses the stable Pages origin `https://onlyoffice-embed-resource.pages.dev`; Cloudflare may still create one current deployment identifier internally, but stale identifiers are cleaned up automatically and are never used by the app.
+
 ## Fonts
 
 Custom fonts are registered via **`__custom_font_registry__`**, with **`ttf-to-catalog-font.mjs`** producing OnlyOffice catalog wire-format files. See **[Fonts](src/components/onlyoffice-web-comp/docs/字体配置.md)** in the component docs for the full guide.
