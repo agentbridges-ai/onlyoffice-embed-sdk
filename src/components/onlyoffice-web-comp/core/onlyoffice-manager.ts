@@ -171,6 +171,9 @@ export class OnlyOfficeManager {
   /** 打开/切换文档（上传、新建、重开） */
   async openDocument(input: OpenDocumentInput) {
     const readOnly = input.readOnly ?? this.readOnly;
+    const loadSession =
+      input.loadSession ??
+      editorManagerFactory.beginLoadSession(this.containerId);
 
     setDocumentObj(
       {
@@ -193,12 +196,19 @@ export class OnlyOfficeManager {
       theme: this.theme,
       containerId: this.containerId,
       editorManager: this.editor,
-      loadSession: input.loadSession,
+      loadSession,
       officeXmlEvent: input.officeXmlEvent ?? this.officeXmlEvent,
     });
 
+    if (
+      !editorManagerFactory.isLoadSessionActive(this.containerId, loadSession)
+    ) {
+      return false;
+    }
+
     this.readOnly = readOnly;
     this.ready = true;
+    return true;
   }
 
   async openNew(fileName: string, readOnly?: boolean) {
@@ -362,6 +372,7 @@ export class OnlyOfficeManager {
   }
 
   destroy() {
+    editorManagerFactory.beginLoadSession(this.containerId);
     this.editor.destroy();
     clearDocumentObj(this.containerId);
     this.ready = false;
@@ -371,28 +382,95 @@ export class OnlyOfficeManager {
 /** 多容器场景（如三栏 Word/Excel/PPT）按 containerId 缓存门面实例 */
 export class OnlyOfficeManagerFactory {
   private managers = new Map<string, OnlyOfficeManager>();
+  private pendingManagers = new Map<string, Promise<OnlyOfficeManager>>();
+  private lifecycleGenerations = new Map<string, number>();
+
+  private getLifecycleGeneration(containerId: string) {
+    return this.lifecycleGenerations.get(containerId) ?? 0;
+  }
+
+  private invalidate(containerId: string) {
+    this.lifecycleGenerations.set(
+      containerId,
+      this.getLifecycleGeneration(containerId) + 1,
+    );
+    this.pendingManagers.delete(containerId);
+  }
+
+  private getOrCreate(
+    containerId: string,
+    options: OnlyOfficeManagerOptions,
+  ): Promise<OnlyOfficeManager> {
+    const existing = this.managers.get(containerId);
+    if (existing) {
+      return Promise.resolve(existing);
+    }
+
+    const pending = this.pendingManagers.get(containerId);
+    if (pending) {
+      return pending;
+    }
+
+    const lifecycleGeneration = this.getLifecycleGeneration(containerId);
+    const creation = initializeOnlyOffice().then(() => {
+      if (lifecycleGeneration !== this.getLifecycleGeneration(containerId)) {
+        throw new DOMException(
+          `OnlyOffice manager creation was cancelled: ${containerId}`,
+          "AbortError",
+        );
+      }
+
+      const current = this.managers.get(containerId);
+      if (current) return current;
+
+      const editor = editorManagerFactory.get(containerId);
+      const manager = OnlyOfficeManager.fromEditor(editor, {
+        ...options,
+        containerId,
+      });
+      this.managers.set(containerId, manager);
+      return manager;
+    });
+
+    this.pendingManagers.set(containerId, creation);
+    const clearPending = () => {
+      if (this.pendingManagers.get(containerId) === creation) {
+        this.pendingManagers.delete(containerId);
+      }
+    };
+    void creation.then(clearPending, clearPending);
+    return creation;
+  }
 
   async open(
     options: OnlyOfficeManagerOptions,
     document: OpenDocumentInput,
   ): Promise<OnlyOfficeManager> {
     const containerId = options.containerId ?? ONLYOFFICE_ID;
-    let manager = this.managers.get(containerId);
+    const lifecycleGeneration = this.getLifecycleGeneration(containerId);
+    const manager = await this.getOrCreate(containerId, options);
+    const isActive = () =>
+      lifecycleGeneration === this.getLifecycleGeneration(containerId) &&
+      this.managers.get(containerId) === manager;
 
-    if (!manager) {
-      await initializeOnlyOffice();
-      const editor = editorManagerFactory.get(containerId);
-      manager = OnlyOfficeManager.fromEditor(editor, {
-        ...options,
-        containerId,
-      });
-      this.managers.set(containerId, manager);
+    if (!isActive()) {
+      throw new DOMException(
+        `OnlyOffice open was cancelled: ${containerId}`,
+        "AbortError",
+      );
     }
 
-    await manager.openDocument({
+    const opened = await manager.openDocument({
       ...document,
       readOnly: document.readOnly ?? options.readOnly,
     });
+
+    if (!opened || !isActive()) {
+      throw new DOMException(
+        `OnlyOffice open was superseded: ${containerId}`,
+        "AbortError",
+      );
+    }
 
     return manager;
   }
@@ -402,15 +480,26 @@ export class OnlyOfficeManagerFactory {
   }
 
   destroy(containerId: string) {
+    this.invalidate(containerId);
     this.managers.get(containerId)?.destroy();
     this.managers.delete(containerId);
+    editorManagerFactory.destroy(containerId);
   }
 
   destroyAll() {
-    for (const manager of this.managers.values()) {
+    const containerIds = new Set([
+      ...this.managers.keys(),
+      ...this.pendingManagers.keys(),
+    ]);
+    for (const containerId of containerIds) {
+      this.invalidate(containerId);
+    }
+    for (const [containerId, manager] of this.managers) {
       manager.destroy();
+      editorManagerFactory.destroy(containerId);
     }
     this.managers.clear();
+    this.pendingManagers.clear();
   }
 }
 

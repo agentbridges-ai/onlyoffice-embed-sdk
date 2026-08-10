@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DEFAULT_OFFICE_THEME,
   FILE_TYPE,
@@ -15,11 +15,9 @@ import {
   onlyofficeEventbus,
 } from "@/components/onlyoffice-web-comp";
 import { converter } from "@/components/onlyoffice-web-comp/internal/editor/x2t";
+import { getScopedIoRegistry } from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
 import { getX2tConvertFormats } from "@/components/onlyoffice-web-comp/internal/editor/utils";
-import type {
-  FileType,
-  OfficeTheme,
-} from "@/components/onlyoffice-web-comp";
+import type { FileType, OfficeTheme } from "@/components/onlyoffice-web-comp";
 import type {
   ResourceMode,
   ScenarioResult,
@@ -28,6 +26,7 @@ import type {
 
 export const CONTAINER_IDS = {
   factory: "e2e-factory-editor",
+  concurrent: "e2e-concurrent-editor",
   create: "e2e-create-editor",
   file: "e2e-file-editor",
   textFallback: "e2e-text-fallback-editor",
@@ -65,12 +64,13 @@ declare const Api: {
   };
 };
 
-function waitForDocumentReady() {
+function waitForDocumentReady(instanceId?: string) {
   let timeoutId: number | undefined;
-  let handler: (() => void) | undefined;
+  let handler: ((data: { instanceId?: string }) => void) | undefined;
 
   const promise = new Promise<void>((resolve, reject) => {
-    handler = () => {
+    handler = (data) => {
+      if (instanceId && data.instanceId !== instanceId) return;
       if (timeoutId !== undefined) {
         window.clearTimeout(timeoutId);
       }
@@ -101,11 +101,20 @@ function waitForDocumentReady() {
   };
 }
 
-async function withDocumentReady<T>(action: () => Promise<T>) {
-  const ready = waitForDocumentReady();
+async function withDocumentReady<T>(
+  action: () => Promise<T>,
+  operation = "OnlyOffice operation",
+  instanceId?: string,
+) {
+  const ready = waitForDocumentReady(instanceId);
   try {
     const value = await action();
-    await ready.promise;
+    await ready.promise.catch((error) => {
+      throw new Error(
+        `${operation} did not emit documentReady`,
+        error instanceof Error ? { cause: error } : undefined,
+      );
+    });
     return value;
   } catch (error) {
     ready.cancel();
@@ -135,9 +144,11 @@ function frameOrigin(containerId: string) {
   const frame =
     frames.find((item) => {
       try {
-        return new URL(item.src, window.location.href).searchParams.get(
-          "frameEditorId",
-        ) === containerId;
+        return (
+          new URL(item.src, window.location.href).searchParams.get(
+            "frameEditorId",
+          ) === containerId
+        );
       } catch {
         return false;
       }
@@ -177,6 +188,68 @@ async function assertX2tImport(fileName: string, fileType: FileType) {
   );
 }
 
+async function assertX2tRejectsTraversalAndRecovers() {
+  const fileName = "edge-invalid-bookmark.docx";
+  const file = await fetchPublicFile(`/e2e/fixtures/${fileName}`, fileName);
+  const data = await file.arrayBuffer();
+  const { formatFrom, formatTo } = getX2tConvertFormats(FILE_TYPE.DOCX);
+  const params = {
+    data,
+    fileFrom: "doc.docx",
+    fileTo: "Editor.bin",
+    formatFrom,
+    formatTo,
+  };
+
+  const unsafeResult = await converter
+    .convert({
+      ...params,
+      media: { "../params.xml": Uint8Array.from([1]) },
+    })
+    .then(
+      () => null,
+      (error) => error,
+    );
+  assert(unsafeResult instanceof Error, "x2t accepted a traversal media path");
+
+  const recovered = await converter.convert(params);
+  assert(
+    recovered.output?.byteLength,
+    "x2t did not recover with a clean Worker after rejecting traversal",
+  );
+
+  const isolated = await converter.convert({
+    ...params,
+    media: {
+      "params.xml": Uint8Array.from([11]),
+      "media/nested/sentinel.bin": Uint8Array.from([12]),
+    },
+    themes: {
+      "doc.docx": Uint8Array.from([13]),
+      "themes/nested/sentinel.xml": new TextEncoder().encode("<theme />"),
+    },
+  });
+  assert(
+    isolated.media["params.xml"]?.[0] === 11 &&
+      isolated.media["nested/sentinel.bin"]?.[0] === 12,
+    "x2t did not keep media inputs inside the media root",
+  );
+  assert(
+    isolated.themes?.["themes/doc.docx"]?.[0] === 13 &&
+      isolated.themes?.["themes/nested/sentinel.xml"],
+    "x2t did not keep theme inputs inside the themes root",
+  );
+
+  const cleaned = await converter.convert(params);
+  assert(
+    !("params.xml" in cleaned.media) &&
+      !("nested/sentinel.bin" in cleaned.media) &&
+      !("themes/doc.docx" in (cleaned.themes ?? {})) &&
+      !("themes/nested/sentinel.xml" in (cleaned.themes ?? {})),
+    "x2t leaked nested MEMFS inputs into the next successful conversion",
+  );
+}
+
 export function resetAll() {
   onlyOfficeManagerFactory.destroyAll();
   editorManagerFactory.destroyAll();
@@ -190,7 +263,10 @@ export async function runScenario(
 ) {
   const steps: StepResult[] = [];
 
-  const runStep = async (name: string, action: () => Promise<string | void>) => {
+  const runStep = async (
+    name: string,
+    action: () => Promise<string | void>,
+  ) => {
     const stepIndex =
       steps.push({ name, status: "running", detail: "running" }) - 1;
     onStepsChange?.([...steps]);
@@ -232,22 +308,125 @@ export async function runScenario(
     return mode === "cdn" ? cdnOrigin : "local packages";
   });
 
-  await runStep("manager factory open/get", async () => {
-    const manager = await withDocumentReady(() =>
-      onlyOfficeManagerFactory.open(
-        {
-          containerId: CONTAINER_IDS.factory,
-          fileType: FILE_TYPE.DOCX,
-          defaultFileName: "Factory.docx",
-          readOnly: false,
-          theme: DEFAULT_OFFICE_THEME,
-          user: { id: "factory-user", name: "Factory User" },
-        },
-        {
-          fileName: "Factory.docx",
+  await runStep("manager factory concurrent open", async () => {
+    const options = {
+      containerId: CONTAINER_IDS.concurrent,
+      fileType: FILE_TYPE.DOCX,
+      defaultFileName: "Concurrent.docx",
+      readOnly: false,
+      theme: DEFAULT_OFFICE_THEME,
+    };
+    const results = await withDocumentReady(
+      () =>
+        Promise.allSettled([
+          onlyOfficeManagerFactory.open(options, {
+            fileName: "Concurrent-A.docx",
+            isNew: true,
+          }),
+          onlyOfficeManagerFactory.open(options, {
+            fileName: "Concurrent-B.docx",
+            isNew: true,
+          }),
+        ]),
+      "concurrent open",
+      CONTAINER_IDS.concurrent,
+    );
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<OnlyOfficeManager> =>
+        result.status === "fulfilled",
+    );
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    assert(fulfilled.length === 1, "Expected one latest concurrent open");
+    assert(rejected.length === 1, "Expected one superseded concurrent open");
+    assert(
+      rejected[0]?.reason instanceof DOMException &&
+        rejected[0].reason.name === "AbortError",
+      "Superseded concurrent open did not reject with AbortError",
+    );
+
+    const manager = onlyOfficeManagerFactory.get(CONTAINER_IDS.concurrent);
+    assert(manager === fulfilled[0]?.value, "Factory cached a stale manager");
+    assert(manager?.isReady(), "Latest concurrent manager was not ready");
+    await assertExport(manager, FILE_TYPE.DOCX);
+    onlyOfficeManagerFactory.destroy(CONTAINER_IDS.concurrent);
+    assert(
+      !onlyOfficeManagerFactory.get(CONTAINER_IDS.concurrent),
+      "Factory destroy retained the concurrent manager",
+    );
+
+    let releaseSlowFile!: (value: ArrayBuffer) => void;
+    let markSlowFileStarted!: () => void;
+    const slowFileStarted = new Promise<void>((resolve) => {
+      markSlowFileStarted = resolve;
+    });
+    const slowFileData = new Promise<ArrayBuffer>((resolve) => {
+      releaseSlowFile = resolve;
+    });
+    const slowFile = new File(["slow"], "Slow.docx");
+    Object.defineProperty(slowFile, "arrayBuffer", {
+      value: () => {
+        markSlowFileStarted();
+        return slowFileData;
+      },
+    });
+
+    const staleOpen = onlyOfficeManagerFactory.open(options, {
+      fileName: slowFile.name,
+      file: slowFile,
+    });
+    await slowFileStarted;
+    onlyOfficeManagerFactory.destroy(CONTAINER_IDS.concurrent);
+
+    const replacement = await withDocumentReady(
+      () =>
+        onlyOfficeManagerFactory.open(options, {
+          fileName: "Replacement.docx",
           isNew: true,
-        },
-      ),
+        }),
+      "replacement open",
+      CONTAINER_IDS.concurrent,
+    );
+    const scopedIo = getScopedIoRegistry()[CONTAINER_IDS.concurrent];
+    assert(scopedIo, "Replacement editor did not register scoped IO");
+
+    releaseSlowFile(new Uint8Array([1, 2, 3]).buffer);
+    const staleResult = await Promise.allSettled([staleOpen]);
+    assert(
+      staleResult[0]?.status === "rejected" &&
+        staleResult[0].reason instanceof DOMException &&
+        staleResult[0].reason.name === "AbortError",
+      "Destroyed slow open did not reject with AbortError",
+    );
+    assert(
+      getScopedIoRegistry()[CONTAINER_IDS.concurrent] === scopedIo,
+      "Stale editor removed the replacement scoped IO",
+    );
+    await assertExport(replacement, FILE_TYPE.DOCX);
+    onlyOfficeManagerFactory.destroy(CONTAINER_IDS.concurrent);
+    return "one latest open, one AbortError";
+  });
+
+  await runStep("manager factory open/get", async () => {
+    const manager = await withDocumentReady(
+      () =>
+        onlyOfficeManagerFactory.open(
+          {
+            containerId: CONTAINER_IDS.factory,
+            fileType: FILE_TYPE.DOCX,
+            defaultFileName: "Factory.docx",
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+            user: { id: "factory-user", name: "Factory User" },
+          },
+          {
+            fileName: "Factory.docx",
+            isNew: true,
+          },
+        ),
+      "factory open",
+      CONTAINER_IDS.factory,
     );
 
     assert(manager.isReady(), "Factory manager was not ready");
@@ -258,7 +437,10 @@ export async function runScenario(
 
     const origin = frameOrigin(CONTAINER_IDS.factory);
     if (mode === "cdn") {
-      assert(origin === new URL(cdnOrigin).origin, "Expected CDN iframe origin");
+      assert(
+        origin === new URL(cdnOrigin).origin,
+        "Expected CDN iframe origin",
+      );
     } else {
       assert(origin === window.location.origin, "Expected local iframe origin");
     }
@@ -271,10 +453,18 @@ export async function runScenario(
     manager.setUser({ id: "updated-user", name: "Updated User" });
     assert(manager.getUser().id === "updated-user", "setUser/getUser failed");
 
-    await withDocumentReady(() => manager.setLanguage("en"));
+    await withDocumentReady(
+      () => manager.setLanguage("en"),
+      "setLanguage",
+      CONTAINER_IDS.factory,
+    );
     assert(manager.getLanguage() === "en", "setLanguage failed");
 
-    await withDocumentReady(() => manager.setTheme(OFFICE_THEME.DARK));
+    await withDocumentReady(
+      () => manager.setTheme(OFFICE_THEME.DARK),
+      "setTheme",
+      CONTAINER_IDS.factory,
+    );
     assert(
       manager.getTheme() === (OFFICE_THEME.DARK as OfficeTheme),
       "setTheme failed",
@@ -285,7 +475,11 @@ export async function runScenario(
     await manager.setReadOnly(false);
     assert(!manager.getReadOnly(), "setReadOnly(false) failed");
 
-    await withDocumentReady(() => manager.openNew("Factory-Reopened.docx"));
+    await withDocumentReady(
+      () => manager.openNew("Factory-Reopened.docx"),
+      "openNew",
+      CONTAINER_IDS.factory,
+    );
     await assertExport(manager, FILE_TYPE.DOCX);
   });
 
@@ -333,16 +527,14 @@ export async function runScenario(
       "Missing invalid bookmark fixture",
     );
     assert(names.has("xml-limit.docx"), "Missing XML limit fixture");
-    assert(
-      names.has("mismatch-xlsx-as-docx.docx"),
-      "Missing mismatch fixture",
-    );
+    assert(names.has("mismatch-xlsx-as-docx.docx"), "Missing mismatch fixture");
     return `${manifest.length} generated fixtures`;
   });
 
   await runStep("x2t edge imports", async () => {
     await assertX2tImport("edge-invalid-bookmark.docx", FILE_TYPE.DOCX);
-    return "DingTalk invalid bookmark DOCX converted to Editor.bin";
+    await assertX2tRejectsTraversalAndRecovers();
+    return "DOCX converted; traversal rejected; clean Worker recovered";
   });
 
   await runStep("generated negative fixtures", async () => {
@@ -382,14 +574,17 @@ export async function runScenario(
   });
 
   await runStep("manager create", async () => {
-    const manager = await withDocumentReady(() =>
-      OnlyOfficeManager.create({
-        containerId: CONTAINER_IDS.create,
-        fileType: FILE_TYPE.PPTX,
-        defaultFileName: "FactoryDeck.pptx",
-        readOnly: false,
-        theme: DEFAULT_OFFICE_THEME,
-      }),
+    const manager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.create({
+          containerId: CONTAINER_IDS.create,
+          fileType: FILE_TYPE.PPTX,
+          defaultFileName: "FactoryDeck.pptx",
+          readOnly: false,
+          theme: DEFAULT_OFFICE_THEME,
+        }),
+      "manager create",
+      CONTAINER_IDS.create,
     );
 
     assert(manager.isReady(), "OnlyOfficeManager.create was not ready");
@@ -398,30 +593,38 @@ export async function runScenario(
     try {
       await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
-          reject(new Error("Presentation connector did not return within 10 seconds"));
+          reject(
+            new Error(
+              "Presentation connector did not return within 10 seconds",
+            ),
+          );
         }, 10_000);
-        connector.callCommand(function () {
-          const fill = Api.CreateSolidFill(Api.CreateRGBColor(230, 247, 255));
-          const stroke = Api.CreateStroke(
-            0,
-            Api.CreateSolidFill(Api.CreateRGBColor(24, 144, 255)),
-          );
-          const shape = Api.CreateShape(
-            "rect",
-            7_200_000,
-            900_000,
-            fill,
-            stroke,
-          );
-          shape.SetPosition(1_000_000, 1_000_000);
-          shape
-            .GetDocContent()
-            .GetContent()[0]?.AddText("[Connector] wrote this text box.");
-          Api.GetPresentation().GetCurrentSlide().AddObject(shape);
-        }, () => {
-          window.clearTimeout(timeout);
-          resolve();
-        });
+        connector.callCommand(
+          function () {
+            const fill = Api.CreateSolidFill(Api.CreateRGBColor(230, 247, 255));
+            const stroke = Api.CreateStroke(
+              0,
+              Api.CreateSolidFill(Api.CreateRGBColor(24, 144, 255)),
+            );
+            const shape = Api.CreateShape(
+              "rect",
+              7_200_000,
+              900_000,
+              fill,
+              stroke,
+            );
+            shape.SetPosition(1_000_000, 1_000_000);
+            shape
+              .GetDocContent()
+              .GetContent()[0]
+              ?.AddText("[Connector] wrote this text box.");
+            Api.GetPresentation().GetCurrentSlide().AddObject(shape);
+          },
+          () => {
+            window.clearTimeout(timeout);
+            resolve();
+          },
+        );
       });
     } finally {
       connector.disconnect();
@@ -435,21 +638,28 @@ export async function runScenario(
 
   await runStep("manager createWithFile", async () => {
     const file = await fetchPublicFile("/test.xlsx", "test.xlsx");
-    const manager = await withDocumentReady(() =>
-      OnlyOfficeManager.createWithFile(
-        {
-          containerId: CONTAINER_IDS.file,
-          fileType: FILE_TYPE.XLSX,
-          defaultFileName: "test.xlsx",
-          readOnly: false,
-          theme: DEFAULT_OFFICE_THEME,
-        },
-        file,
-      ),
+    const manager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.createWithFile(
+          {
+            containerId: CONTAINER_IDS.file,
+            fileType: FILE_TYPE.XLSX,
+            defaultFileName: "test.xlsx",
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+          },
+          file,
+        ),
+      "createWithFile",
+      CONTAINER_IDS.file,
     );
 
     assert(manager.isReady(), "OnlyOfficeManager.createWithFile was not ready");
-    await withDocumentReady(() => manager.openFile(file));
+    await withDocumentReady(
+      () => manager.openFile(file),
+      "openFile",
+      CONTAINER_IDS.file,
+    );
     await assertExport(manager, FILE_TYPE.XLSX);
     manager.destroy();
     editorManagerFactory.destroy(CONTAINER_IDS.file);
@@ -457,33 +667,41 @@ export async function runScenario(
 
   await runStep("manager spreadsheet connector", async () => {
     const file = await fetchPublicFile("/test.xlsx", "test.xlsx");
-    const manager = await withDocumentReady(() =>
-      OnlyOfficeManager.createWithFile(
-        {
-          containerId: CONTAINER_IDS.file,
-          fileType: FILE_TYPE.XLSX,
-          defaultFileName: file.name,
-          readOnly: false,
-          theme: DEFAULT_OFFICE_THEME,
-        },
-        file,
-      ),
+    const manager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.createWithFile(
+          {
+            containerId: CONTAINER_IDS.file,
+            fileType: FILE_TYPE.XLSX,
+            defaultFileName: file.name,
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+          },
+          file,
+        ),
+      "spreadsheet createWithFile",
+      CONTAINER_IDS.file,
     );
 
     const connector = manager.createConnector();
     try {
       await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
-          reject(new Error("Spreadsheet connector did not return within 10 seconds"));
+          reject(
+            new Error("Spreadsheet connector did not return within 10 seconds"),
+          );
         }, 10_000);
-        connector.callCommand(function () {
-          Api.GetActiveSheet()
-            .GetRange("A1")
-            .SetValue("[Connector] wrote this cell.");
-        }, () => {
-          window.clearTimeout(timeout);
-          resolve();
-        });
+        connector.callCommand(
+          function () {
+            Api.GetActiveSheet()
+              .GetRange("A1")
+              .SetValue("[Connector] wrote this cell.");
+          },
+          () => {
+            window.clearTimeout(timeout);
+            resolve();
+          },
+        );
       });
       await assertExport(manager, FILE_TYPE.XLSX);
     } finally {
@@ -500,17 +718,20 @@ export async function runScenario(
       "/e2e/fixtures/plain-text-as-docx.docx",
       "plain-text-as-docx.docx",
     );
-    const docxManager = await withDocumentReady(() =>
-      OnlyOfficeManager.createWithFile(
-        {
-          containerId: CONTAINER_IDS.textFallback,
-          fileType: FILE_TYPE.DOCX,
-          defaultFileName: textDocx.name,
-          readOnly: false,
-          theme: DEFAULT_OFFICE_THEME,
-        },
-        textDocx,
-      ),
+    const docxManager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.createWithFile(
+          {
+            containerId: CONTAINER_IDS.textFallback,
+            fileType: FILE_TYPE.DOCX,
+            defaultFileName: textDocx.name,
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+          },
+          textDocx,
+        ),
+      "text DOCX fallback",
+      CONTAINER_IDS.textFallback,
     );
 
     assert(docxManager.isReady(), "Text DOCX fallback was not ready");
@@ -522,17 +743,20 @@ export async function runScenario(
       "/e2e/fixtures/plain-text-as-xlsx.xlsx",
       "plain-text-as-xlsx.xlsx",
     );
-    const xlsxManager = await withDocumentReady(() =>
-      OnlyOfficeManager.createWithFile(
-        {
-          containerId: CONTAINER_IDS.textFallback,
-          fileType: FILE_TYPE.XLSX,
-          defaultFileName: textXlsx.name,
-          readOnly: false,
-          theme: DEFAULT_OFFICE_THEME,
-        },
-        textXlsx,
-      ),
+    const xlsxManager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.createWithFile(
+          {
+            containerId: CONTAINER_IDS.textFallback,
+            fileType: FILE_TYPE.XLSX,
+            defaultFileName: textXlsx.name,
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+          },
+          textXlsx,
+        ),
+      "text XLSX fallback",
+      CONTAINER_IDS.textFallback,
     );
 
     assert(xlsxManager.isReady(), "Text XLSX fallback was not ready");
@@ -551,11 +775,14 @@ export async function runScenario(
       theme: DEFAULT_OFFICE_THEME,
     });
 
-    await withDocumentReady(() =>
-      manager.openDocument({
-        fileName: "FromEditor.docx",
-        isNew: true,
-      }),
+    await withDocumentReady(
+      () =>
+        manager.openDocument({
+          fileName: "FromEditor.docx",
+          isNew: true,
+        }),
+      "fromEditor open",
+      CONTAINER_IDS.fromEditor,
     );
 
     assert(manager.isReady(), "OnlyOfficeManager.fromEditor was not ready");
@@ -589,19 +816,18 @@ function OnlyOfficeTestEditor({ containerId }: { containerId: string }) {
 }
 
 export function OnlyOfficeFactoryE2EPage() {
-  const params = useMemo<{ mode: ResourceMode; cdnOrigin: string }>(() => {
-    if (typeof window === "undefined") {
-      return {
-        mode: "local",
-        cdnOrigin: "",
-      };
-    }
-
+  const [params, setParams] = useState<{
+    mode: ResourceMode;
+    cdnOrigin: string;
+  }>({ mode: "local", cdnOrigin: "" });
+  const [paramsReady, setParamsReady] = useState(false);
+  useEffect(() => {
     const search = new URLSearchParams(window.location.search);
-    return {
+    setParams({
       mode: search.get("mode") === "cdn" ? "cdn" : "local",
       cdnOrigin: search.get("cdnOrigin") || "http://127.0.0.1:3010",
-    };
+    });
+    setParamsReady(true);
   }, []);
 
   const [result, setResult] = useState<ScenarioResult>({
@@ -611,6 +837,7 @@ export function OnlyOfficeFactoryE2EPage() {
   });
 
   useEffect(() => {
+    if (!paramsReady) return;
     let disposed = false;
 
     window.requestAnimationFrame(() => {
@@ -650,7 +877,7 @@ export function OnlyOfficeFactoryE2EPage() {
       resetAll();
       OnlyOfficeManager.resetStaticResource();
     };
-  }, [params.cdnOrigin, params.mode]);
+  }, [params.cdnOrigin, params.mode, paramsReady]);
 
   return (
     <main className="min-h-screen bg-neutral-50 p-4 text-neutral-900">
@@ -676,6 +903,7 @@ export function OnlyOfficeFactoryE2EPage() {
 
       <div className="grid gap-4">
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.factory} />
+        <OnlyOfficeTestEditor containerId={CONTAINER_IDS.concurrent} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.create} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.file} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.textFallback} />

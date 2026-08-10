@@ -21,7 +21,7 @@ export interface MockSocketOptions {
  */
 export class MockSocket<
   ListenEvents extends Record<string, Callback> = any,
-  EmitEvents extends Record<string, Callback> = any
+  EmitEvents extends Record<string, Callback> = any,
 > {
   private static _staticEmitter = new EventEmitter();
   static on<E extends string>(event: E, listener: Callback) {
@@ -37,12 +37,8 @@ export class MockSocket<
   public recovered = false;
   public id: string = "";
   public io = {
-    setOpenToken: () => {
-
-    },
-    setSessionToken: () => {
-
-    },
+    setOpenToken: () => {},
+    setSessionToken: () => {},
     on: function () {
       return this;
     },
@@ -88,7 +84,10 @@ export class MockSocket<
 
   private _log(...args: any[]): void {
     if (this._logger) {
-      this._logger.raw("log", "socket", "mock socket", ["[MockSocket]", ...args]);
+      this._logger.raw("log", "socket", "mock socket", [
+        "[MockSocket]",
+        ...args,
+      ]);
       return;
     }
     if (this._debug) {
@@ -142,7 +141,7 @@ export class MockSocket<
    */
   on<E extends keyof ListenEvents & string>(
     event: E,
-    listener: ListenEvents[E]
+    listener: ListenEvents[E],
   ): this {
     this._clientEmitter.on(event, listener);
     return this;
@@ -153,7 +152,7 @@ export class MockSocket<
    */
   once<E extends keyof ListenEvents & string>(
     event: E,
-    listener: ListenEvents[E]
+    listener: ListenEvents[E],
   ): this {
     this._clientEmitter.once(event, listener);
     return this;
@@ -164,7 +163,7 @@ export class MockSocket<
    */
   off<E extends keyof ListenEvents & string>(
     event: E,
-    listener?: ListenEvents[E]
+    listener?: ListenEvents[E],
   ): this {
     this._clientEmitter.off(event, listener);
     return this;
@@ -239,7 +238,6 @@ const ioWithStatics = io as SocketIOStatic;
  * @description 默认导出保持 socket.io-client 兼容。
  */
 export default ioWithStatics;
-
 
 export interface XHRMiddleware {
   (request: Request): Response | null | Promise<Response | null>;
@@ -538,7 +536,6 @@ export function createXHRProxy(
   };
 }
 
-
 export type FetchProxy = typeof fetch & {
   use(middleware: XHRMiddleware): void;
   clearMiddlewares(): void;
@@ -593,7 +590,6 @@ export function createFetchProxy(
   return proxy;
 }
 
-
 export const CROSS_ORIGIN_BRIDGE_MESSAGE = {
   EDITOR_COMMAND: "editor:command",
   EDITOR_RESPONSE: "editor:response",
@@ -637,7 +633,6 @@ export const CROSS_ORIGIN_EDITOR_EVENT = {
   DOCUMENT_MODIFIED_CHANGED: "asc_onDocumentModifiedChanged",
 } as const;
 
-
 export function shouldBypassOnlyOfficeProxy(url: string, baseUrl: string) {
   const pathname = new URL(url, baseUrl).pathname;
 
@@ -672,7 +667,13 @@ export function registerScopedIo(
   factory: ScopedIoFactory,
   win: Window = window,
 ) {
-  getScopedIoRegistry(win)[containerId] = factory;
+  const registry = getScopedIoRegistry(win);
+  registry[containerId] = factory;
+  return () => {
+    if (registry[containerId] === factory) {
+      delete registry[containerId];
+    }
+  };
 }
 
 export function unregisterScopedIo(containerId: string, win: Window = window) {
@@ -894,9 +895,7 @@ function installPrintFramePatch(
     get: nativeGetter,
     set(value: string) {
       const outputName = extractOutputNameFromCacheUrl(value);
-      const blobUrl = outputName
-        ? server.getStoredOutputUrl(outputName)
-        : null;
+      const blobUrl = outputName ? server.getStoredOutputUrl(outputName) : null;
 
       if (!blobUrl || !value.includes("/cache/files/")) {
         nativeSetter.call(this, value);
@@ -950,9 +949,13 @@ export function installOnlyOfficeProxies(
   const fetchProxy = createFetchProxy(win, { baseUrl: win.location.href });
   const WorkerCtor = win.Worker;
 
-  xhr.use((request) => win.__ONLYOFFICE_PROXY_SERVER__?.handleRequest(request) ?? null);
+  xhr.use(
+    (request) =>
+      win.__ONLYOFFICE_PROXY_SERVER__?.handleRequest(request) ?? null,
+  );
   fetchProxy.use(
-    (request) => win.__ONLYOFFICE_PROXY_SERVER__?.handleRequest(request) ?? null,
+    (request) =>
+      win.__ONLYOFFICE_PROXY_SERVER__?.handleRequest(request) ?? null,
   );
 
   const patches: Partial<OnlyOfficeProxyWindow> & { io?: ScopedIoFactory } = {
@@ -1006,7 +1009,7 @@ export function installReporterWindowHook(
     features?: string,
   ) {
     const popup = nativeOpen(url, target, features);
-    const href = typeof url === "string" ? url : url?.toString() ?? "";
+    const href = typeof url === "string" ? url : (url?.toString() ?? "");
 
     if (popup && href.includes(REPORTER_HTML)) {
       watchReporterWindow(popup, installProxies);
@@ -1059,13 +1062,13 @@ function watchReporterWindow(
   );
 }
 
-
 const BRIDGE_SOURCE = "onlyoffice-bridge";
 
 type BridgeMessage = {
   source?: string;
   type?: string;
   frameEditorId?: string;
+  bridgeInstanceId?: string;
   requestId?: string;
   command?: string;
   payload?: Record<string, unknown>;
@@ -1087,10 +1090,14 @@ type BridgeMessage = {
 
 type BridgeSession = {
   frameEditorId: string;
+  generation: number;
+  owner: object;
   server: EditorServer;
   createIo: ScopedIoFactory;
   iframe: HTMLIFrameElement;
+  iframeSrc: string;
   targetOrigin: string;
+  bridgeInstanceId: string | null;
   socket: MockSocket | null;
   bridgeReady: boolean;
   handshakeSent: boolean;
@@ -1101,6 +1108,8 @@ const sessions = new Map<string, BridgeSession>();
 const pendingRequests = new Map<
   string,
   {
+    frameEditorId: string;
+    generation: number;
     resolve: (value: unknown) => void;
     reject: (reason?: unknown) => void;
     timer: number;
@@ -1109,11 +1118,12 @@ const pendingRequests = new Map<
 const pendingReadyWaiters = new Map<
   string,
   Set<{
-    resolve: (session: BridgeSession) => void;
+    resolve: (ready: BridgeReady) => void;
     reject: (reason?: unknown) => void;
     timer: number;
   }>
 >();
+type BridgeReady = { session: BridgeSession; generation: number };
 const editorEventSubscribers = new Map<
   string,
   Map<string, Set<(args: unknown[]) => void>>
@@ -1132,7 +1142,7 @@ function getTargetOrigin(iframe: HTMLIFrameElement): string {
   try {
     return new URL(iframe.src, window.location.href).origin;
   } catch {
-    return "*";
+    return "";
   }
 }
 
@@ -1142,45 +1152,77 @@ function postToIframe(
   targetWindow?: Window | null,
 ) {
   const target = targetWindow ?? session.iframe.contentWindow;
-  if (!target) {
+  if (!target || !session.targetOrigin) {
     return;
   }
   target.postMessage(
-    { ...message, source: BRIDGE_SOURCE },
+    {
+      ...message,
+      source: BRIDGE_SOURCE,
+      bridgeInstanceId: session.bridgeInstanceId ?? undefined,
+    },
     session.targetOrigin,
   );
-}
-
-function getIframeByWindow(source: MessageEventSource | null) {
-  if (!source || !("postMessage" in source)) {
-    return null;
-  }
-
-  const frames = document.querySelectorAll<HTMLIFrameElement>(
-    'iframe[name="frameEditor"]',
-  );
-  for (const frame of frames) {
-    if (frame.contentWindow === source) {
-      return frame;
-    }
-  }
-
-  return null;
 }
 
 function updateSessionIframe(
   session: BridgeSession,
   iframe: HTMLIFrameElement,
+  force = false,
 ) {
-  if (session.iframe === iframe) {
+  let iframeUrl: URL;
+  try {
+    iframeUrl = new URL(iframe.src, iframe.ownerDocument.baseURI);
+  } catch {
+    return;
+  }
+  const targetOrigin = iframeUrl.origin;
+  if (
+    !force &&
+    session.iframe === iframe &&
+    session.iframeSrc === iframeUrl.href &&
+    session.targetOrigin === targetOrigin
+  ) {
     return;
   }
 
   detachSocket(session);
   session.iframe = iframe;
-  session.targetOrigin = getTargetOrigin(iframe);
+  session.iframeSrc = iframeUrl.href;
+  session.targetOrigin = targetOrigin;
+  session.bridgeInstanceId = null;
   session.bridgeReady = false;
   session.handshakeSent = false;
+}
+
+function isMessageFromSession(event: MessageEvent, session: BridgeSession) {
+  return (
+    Boolean(session.targetOrigin) &&
+    event.origin === session.targetOrigin &&
+    event.source === session.iframe.contentWindow
+  );
+}
+
+function rejectSessionPendingRequests(session: BridgeSession, error: Error) {
+  for (const [requestId, pending] of pendingRequests) {
+    if (
+      pending.frameEditorId !== session.frameEditorId ||
+      pending.generation !== session.generation
+    ) {
+      continue;
+    }
+
+    window.clearTimeout(pending.timer);
+    pending.reject(error);
+    pendingRequests.delete(requestId);
+  }
+}
+
+function isCurrentSession(session: BridgeSession, generation: number) {
+  return (
+    sessions.get(session.frameEditorId) === session &&
+    session.generation === generation
+  );
 }
 
 function attachSocket(session: BridgeSession) {
@@ -1217,25 +1259,70 @@ async function handleHttpRequest(
   session: BridgeSession,
   message: BridgeMessage,
 ) {
+  const generation = session.generation;
   const requestId = message.requestId;
   if (!requestId || !message.url || !message.method) {
     return;
   }
 
   try {
+    const url = new URL(message.url);
+    const method = message.method.toUpperCase();
+    const isTrustedOrigin =
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      url.origin === session.targetOrigin;
+    const isCacheRequest =
+      method === "GET" &&
+      /(?:^|\/)cache\/files\/data\/[^/]+\/.+$/.test(url.pathname);
+    const isDownloadRequest =
+      method === "POST" && /(?:^|\/)downloadas\/[^/]+$/.test(url.pathname);
+    const isUploadRequest =
+      method === "POST" && /(?:^|\/)upload\/[^/]+$/.test(url.pathname);
+    const isPluginRequest =
+      (method === "GET" || method === "HEAD") &&
+      url.pathname === "/plugins.json";
+
+    if (
+      !isTrustedOrigin ||
+      (!isCacheRequest &&
+        !isDownloadRequest &&
+        !isUploadRequest &&
+        !isPluginRequest)
+    ) {
+      if (isCurrentSession(session, generation)) {
+        postToIframe(session, {
+          type: "http:response",
+          frameEditorId: session.frameEditorId,
+          requestId,
+          status: 403,
+          responseBody: null,
+        });
+      }
+      return;
+    }
+
     const init: RequestInit = {
-      method: message.method,
+      method,
       headers: message.headers,
     };
-    if (message.method !== "GET" && message.method !== "HEAD") {
+    if (method !== "GET" && method !== "HEAD") {
       init.body = decodeRequestBody(message);
     }
 
-    let response = await session.server.handleRequest(
-      new Request(message.url, init),
-    );
+    const request = new Request(url, init);
+    let response = isPluginRequest
+      ? null
+      : await session.server.handleRequest(request);
+    if (!response && isPluginRequest) {
+      response = await fetch(request, {
+        credentials: "omit",
+        redirect: "error",
+      });
+    }
     if (!response) {
-      response = await fetch(message.url, init);
+      response = new Response("Not Found", { status: 404 });
     }
 
     const responseHeaders: Record<string, string> = {};
@@ -1244,11 +1331,18 @@ async function handleHttpRequest(
     });
 
     let responseBody: string | null = null;
-    if (message.responseType === "arraybuffer") {
+    if (
+      message.responseType === "arraybuffer" ||
+      message.responseType === "blob"
+    ) {
       const buffer = await response.arrayBuffer();
       responseBody = arrayBufferToBase64(buffer);
     } else {
       responseBody = await response.text();
+    }
+
+    if (!isCurrentSession(session, generation)) {
+      return;
     }
 
     postToIframe(session, {
@@ -1261,13 +1355,15 @@ async function handleHttpRequest(
       responseType: message.responseType,
     });
   } catch (error) {
-    postToIframe(session, {
-      type: "http:response",
-      frameEditorId: session.frameEditorId,
-      requestId,
-      status: 0,
-      responseBody: null,
-    });
+    if (isCurrentSession(session, generation)) {
+      postToIframe(session, {
+        type: "http:response",
+        frameEditorId: session.frameEditorId,
+        requestId,
+        status: 0,
+        responseBody: null,
+      });
+    }
     console.error("[OnlyOfficeBridge] HTTP proxy failed:", error);
   }
 }
@@ -1320,7 +1416,7 @@ function resolveReadyWaiters(frameEditorId: string, session: BridgeSession) {
   pendingReadyWaiters.delete(frameEditorId);
   waiters.forEach((waiter) => {
     window.clearTimeout(waiter.timer);
-    waiter.resolve(session);
+    waiter.resolve({ session, generation: session.generation });
   });
 }
 
@@ -1340,10 +1436,10 @@ function rejectReadyWaiters(frameEditorId: string, error: Error) {
 function waitForBridgeReady(frameEditorId: string, timeout: number) {
   const session = sessions.get(frameEditorId);
   if (session?.bridgeReady) {
-    return Promise.resolve(session);
+    return Promise.resolve({ session, generation: session.generation });
   }
 
-  return new Promise<BridgeSession>((resolve, reject) => {
+  return new Promise<BridgeReady>((resolve, reject) => {
     const timer = window.setTimeout(() => {
       const waiters = pendingReadyWaiters.get(frameEditorId);
       waiters?.delete(waiter);
@@ -1369,12 +1465,55 @@ function handleBridgeMessage(event: MessageEvent) {
   }
 
   const message = event.data;
+  const frameEditorId = message.frameEditorId;
+  if (!frameEditorId) {
+    return;
+  }
+
+  const session = sessions.get(frameEditorId);
+  if (!session || !isMessageFromSession(event, session)) {
+    return;
+  }
+
+  const bridgeInstanceId = message.bridgeInstanceId;
+  if (typeof bridgeInstanceId !== "string" || !bridgeInstanceId) {
+    return;
+  }
+
+  if (message.type === "hello") {
+    if (session.bridgeInstanceId !== bridgeInstanceId) {
+      if (session.bridgeInstanceId !== null) {
+        rejectSessionPendingRequests(
+          session,
+          new DOMException(
+            `OnlyOffice cross-origin iframe reloaded: ${frameEditorId}`,
+            "AbortError",
+          ),
+        );
+        detachSocket(session);
+        session.generation += 1;
+      }
+      session.bridgeInstanceId = bridgeInstanceId;
+      session.bridgeReady = false;
+      session.handshakeSent = false;
+    }
+  } else if (session.bridgeInstanceId !== bridgeInstanceId) {
+    return;
+  }
+
+  if (message.type !== "hello" && !session.bridgeReady) {
+    return;
+  }
+
   if (
     message.type === CROSS_ORIGIN_BRIDGE_MESSAGE.EDITOR_RESPONSE &&
     message.requestId
   ) {
     const pending = pendingRequests.get(message.requestId);
-    if (pending) {
+    if (
+      pending?.frameEditorId === frameEditorId &&
+      pending.generation === session.generation
+    ) {
       window.clearTimeout(pending.timer);
       pendingRequests.delete(message.requestId);
       if (message.error) {
@@ -1390,30 +1529,12 @@ function handleBridgeMessage(event: MessageEvent) {
     message.type === CROSS_ORIGIN_BRIDGE_MESSAGE.EDITOR_EVENT &&
     message.event
   ) {
-    const frameEditorId = message.frameEditorId;
-    const frameSubscribers = frameEditorId
-      ? editorEventSubscribers.get(frameEditorId)
-      : undefined;
+    const frameSubscribers = editorEventSubscribers.get(frameEditorId);
     const subscribers = frameSubscribers?.get(message.event);
     subscribers?.forEach((handler) => {
       handler(message.args ?? []);
     });
     return;
-  }
-
-  const frameEditorId = message.frameEditorId;
-  if (!frameEditorId) {
-    return;
-  }
-
-  const session = sessions.get(frameEditorId);
-  if (!session) {
-    return;
-  }
-
-  const sourceIframe = getIframeByWindow(event.source);
-  if (sourceIframe) {
-    updateSessionIframe(session, sourceIframe);
   }
 
   switch (message.type) {
@@ -1428,9 +1549,15 @@ function handleBridgeMessage(event: MessageEvent) {
       postToIframe(session, { type: "hello:ack", frameEditorId }, targetWindow);
       if (!session.handshakeSent) {
         session.handshakeSent = true;
+        const generation = session.generation;
+        const socket = session.socket;
         setTimeout(() => {
-          if (session.socket) {
-            session.server.sendCoAuthoringHandshake(session.socket);
+          if (
+            socket &&
+            isCurrentSession(session, generation) &&
+            session.socket === socket
+          ) {
+            session.server.sendCoAuthoringHandshake(socket);
           }
         }, 0);
       }
@@ -1467,21 +1594,66 @@ export function registerCrossOriginBridge(
   iframe: HTMLIFrameElement,
   server: EditorServer,
   createIo: ScopedIoFactory,
+  owner: object = iframe,
 ) {
+  if (!iframe.isConnected) {
+    return false;
+  }
+
+  let iframeUrl: URL;
+  try {
+    iframeUrl = new URL(iframe.src, iframe.ownerDocument.baseURI);
+  } catch {
+    return false;
+  }
+  if (
+    !iframeUrl.origin ||
+    iframeUrl.searchParams.get("frameEditorId") !== frameEditorId
+  ) {
+    return false;
+  }
+
   const existing = sessions.get(frameEditorId);
   if (existing) {
+    const changed =
+      existing.owner !== owner ||
+      existing.iframe !== iframe ||
+      existing.iframeSrc !== iframeUrl.href ||
+      existing.targetOrigin !== iframeUrl.origin;
+    if (changed) {
+      rejectSessionPendingRequests(
+        existing,
+        new DOMException(
+          `OnlyOffice cross-origin iframe was replaced: ${frameEditorId}`,
+          "AbortError",
+        ),
+      );
+      rejectReadyWaiters(
+        frameEditorId,
+        new DOMException(
+          `OnlyOffice cross-origin iframe was replaced: ${frameEditorId}`,
+          "AbortError",
+        ),
+      );
+      existing.generation += 1;
+    }
+    updateSessionIframe(existing, iframe, changed);
     existing.server = server;
     existing.createIo = createIo;
-    updateSessionIframe(existing, iframe);
-    return;
+    existing.owner = owner;
+    return true;
   }
 
   sessions.set(frameEditorId, {
     frameEditorId,
+    generation: 1,
+    owner,
     server,
     createIo,
     iframe,
-    targetOrigin: getTargetOrigin(iframe),
+    iframeSrc: iframeUrl.href,
+    targetOrigin: iframeUrl.origin,
+    bridgeInstanceId: null,
     socket: null,
     bridgeReady: false,
     handshakeSent: false,
@@ -1492,11 +1664,25 @@ export function registerCrossOriginBridge(
     window.addEventListener("message", handleBridgeMessage);
     listenerInstalled = true;
   }
+  return true;
 }
 
-export function unregisterCrossOriginBridge(frameEditorId: string) {
+export function unregisterCrossOriginBridge(
+  frameEditorId: string,
+  owner?: object,
+) {
   const session = sessions.get(frameEditorId);
+  if (owner && session?.owner !== owner) {
+    return;
+  }
   if (session) {
+    rejectSessionPendingRequests(
+      session,
+      new DOMException(
+        `OnlyOffice cross-origin bridge was unregistered: ${frameEditorId}`,
+        "AbortError",
+      ),
+    );
     detachSocket(session);
     sessions.delete(frameEditorId);
     rejectReadyWaiters(
@@ -1543,8 +1729,22 @@ export function callCrossOriginEditor(
     .slice(2)}`;
 
   return waitForBridgeReady(frameEditorId, timeout).then(
-    (session) =>
+    ({ session, generation }) =>
       new Promise<unknown>((resolve, reject) => {
+        if (
+          sessions.get(frameEditorId) !== session ||
+          session.generation !== generation ||
+          !session.bridgeReady
+        ) {
+          reject(
+            new DOMException(
+              `OnlyOffice cross-origin bridge changed: ${frameEditorId}`,
+              "AbortError",
+            ),
+          );
+          return;
+        }
+
         const timer = window.setTimeout(() => {
           pendingRequests.delete(requestId);
           reject(
@@ -1552,7 +1752,13 @@ export function callCrossOriginEditor(
           );
         }, timeout);
 
-        pendingRequests.set(requestId, { resolve, reject, timer });
+        pendingRequests.set(requestId, {
+          frameEditorId,
+          generation,
+          resolve,
+          reject,
+          timer,
+        });
         postToIframe(session, {
           type: CROSS_ORIGIN_BRIDGE_MESSAGE.EDITOR_COMMAND,
           frameEditorId,
@@ -1614,7 +1820,15 @@ export function watchCrossOriginIframe(
   server: EditorServer,
   createIo: ScopedIoFactory,
 ) {
+  const owner = {};
   let registered = false;
+  let retryTimer: number | null = null;
+
+  const stopRetry = () => {
+    if (retryTimer === null) return;
+    window.clearInterval(retryTimer);
+    retryTimer = null;
+  };
 
   const tryRegister = () => {
     const iframe = getIframe();
@@ -1622,32 +1836,53 @@ export function watchCrossOriginIframe(
       return false;
     }
     if (registered) {
-      registerCrossOriginBridge(frameEditorId, iframe, server, createIo);
-      return true;
+      return registerCrossOriginBridge(
+        frameEditorId,
+        iframe,
+        server,
+        createIo,
+        owner,
+      );
     }
-    registered = true;
-    registerCrossOriginBridge(frameEditorId, iframe, server, createIo);
-    return true;
+    registered = registerCrossOriginBridge(
+      frameEditorId,
+      iframe,
+      server,
+      createIo,
+      owner,
+    );
+    return registered;
   };
 
-  tryRegister();
-
-  const timer = window.setInterval(() => {
+  const retryRegistration = () => {
     if (tryRegister()) {
-      window.clearInterval(timer);
+      stopRetry();
+      return;
     }
-  }, 10);
+    if (retryTimer === null) {
+      retryTimer = window.setInterval(() => {
+        if (tryRegister()) stopRetry();
+      }, 10);
+    }
+  };
+
+  retryRegistration();
 
   const observer = new MutationObserver(() => {
-    tryRegister();
+    retryRegistration();
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["src"],
+    childList: true,
+    subtree: true,
+  });
 
   return () => {
-    window.clearInterval(timer);
+    stopRetry();
     observer.disconnect();
     if (registered) {
-      unregisterCrossOriginBridge(frameEditorId);
+      unregisterCrossOriginBridge(frameEditorId, owner);
     }
   };
 }

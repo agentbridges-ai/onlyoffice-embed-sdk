@@ -2,7 +2,6 @@ import {
   installOnlyOfficeProxies,
   installReporterWindowHook,
   registerScopedIo,
-  unregisterScopedIo,
   type OnlyOfficeProxyWindow,
   type ReporterHookWindow,
   type ScopedIoFactory,
@@ -12,7 +11,6 @@ import {
   canAccessIframeWindow,
   setCrossOriginReadOnly,
   subscribeCrossOriginEditorEvent,
-  unregisterCrossOriginBridge,
   watchCrossOriginIframe,
 } from "../internal/editor/runtime-bridge";
 import {
@@ -193,17 +191,21 @@ export class EditorManager {
   private revisionReviewMode = false;
   private wordContentSyncPromise: Promise<void> | null = null;
   private wordContentSyncTeardown: (() => void) | null = null;
+  private scopedIoTeardown: (() => void) | null = null;
   private crossOriginBridgeTeardown: (() => void) | null = null;
   private officeXmlSizeLimitOverlayTeardown: (() => void) | null = null;
   private officeXmlSizeLimitPayload: OfficeXmlSizeLimitExceededPayload | null =
     null;
-  private pendingRename:
-    | {
-        resolve: (fileName: string) => void;
-        reject: (error: Error) => void;
-        timer: number;
-      }
-    | null = null;
+  /** 同一实例的异步 create 串行执行；新请求到达后旧请求只负责清理，不再挂载 iframe。 */
+  private createQueue: Promise<void> = Promise.resolve();
+  private createGeneration = 0;
+  private crossOriginReadOnlySyncGeneration = 0;
+  private destroyed = false;
+  private pendingRename: {
+    resolve: (fileName: string) => void;
+    reject: (error: Error) => void;
+    timer: number;
+  } | null = null;
 
   constructor(containerId = ONLYOFFICE_ID) {
     this.containerId = containerId;
@@ -317,11 +319,16 @@ export class EditorManager {
   }
 
   private syncEditorBridge() {
+    this.crossOriginReadOnlySyncGeneration += 1;
     this.crossOriginBridgeTeardown?.();
     this.crossOriginBridgeTeardown = null;
-    unregisterScopedIo(this.containerId);
+    this.scopedIoTeardown?.();
+    this.scopedIoTeardown = null;
 
-    registerScopedIo(this.containerId, this.createScopedIo());
+    this.scopedIoTeardown = registerScopedIo(
+      this.containerId,
+      this.createScopedIo(),
+    );
     if (!isOnlyOfficeCdnMode()) {
       return;
     }
@@ -334,14 +341,25 @@ export class EditorManager {
     );
   }
 
-  private syncCrossOriginReadOnly(readOnly: boolean, retries = 10) {
+  private syncCrossOriginReadOnly(
+    readOnly: boolean,
+    retries = 10,
+    syncGeneration = ++this.crossOriginReadOnlySyncGeneration,
+  ) {
+    if (
+      this.destroyed ||
+      syncGeneration !== this.crossOriginReadOnlySyncGeneration
+    ) {
+      return false;
+    }
+
     if (setCrossOriginReadOnly(this.containerId, readOnly)) {
       return true;
     }
 
     if (retries > 0) {
       window.setTimeout(() => {
-        this.syncCrossOriginReadOnly(readOnly, retries - 1);
+        this.syncCrossOriginReadOnly(readOnly, retries - 1, syncGeneration);
       }, 50);
     }
 
@@ -407,7 +425,8 @@ export class EditorManager {
     }
 
     const win = iframe.contentWindow as
-      (OnlyOfficeWindow & ReporterHookWindow) | undefined;
+      | (OnlyOfficeWindow & ReporterHookWindow)
+      | undefined;
     const iframeDoc = iframe.contentDocument;
 
     if (!iframeDoc || !win) {
@@ -1323,6 +1342,13 @@ export class EditorManager {
     this.teardownWordContentSync();
   }
 
+  /** 重建 iframe 前先重置跨域 watcher，确保 about:blank 导航完成后绑定到新窗口。 */
+  private remountDocEditor() {
+    this.destroyDocEditorInstance();
+    this.syncEditorBridge();
+    this.mountDocEditor();
+  }
+
   /**
    * 创建 Developer Edition Connector。
    * Connector 运行在父页面，借助 DocsAPI 与编辑器 iframe 通信，因此可用于 CDN 跨域场景。
@@ -1624,15 +1650,49 @@ export class EditorManager {
     );
   }
 
-  async create(options: CreateEditorViewOptions) {
+  private isCreateActive(
+    containerId: string,
+    createGeneration: number,
+    loadSession?: number,
+  ) {
+    return (
+      createGeneration === this.createGeneration &&
+      this.isLoadSessionActive(containerId, loadSession)
+    );
+  }
+
+  /**
+   * 同一容器快速连续 open 时采用 latest-wins：WASM 转换仍按顺序收尾，但过期请求不会重新挂载编辑器。
+   */
+  create(options: CreateEditorViewOptions): Promise<this> {
     const containerId =
       options.containerId || this.containerId || ONLYOFFICE_ID;
+    const createGeneration = ++this.createGeneration;
+    this.destroyed = false;
 
-    if (!this.isLoadSessionActive(containerId, options.loadSession)) {
+    const createTask = this.createQueue.then(() =>
+      this.createInternal(options, containerId, createGeneration),
+    );
+    this.createQueue = createTask.then(
+      () => undefined,
+      () => undefined,
+    );
+    return createTask;
+  }
+
+  private async createInternal(
+    options: CreateEditorViewOptions,
+    containerId: string,
+    createGeneration: number,
+  ) {
+    const isActive = () =>
+      this.isCreateActive(containerId, createGeneration, options.loadSession);
+
+    if (!isActive()) {
       return this;
     }
 
-    this.destroy();
+    this.teardown();
     this.readOnly = !!options.readOnly;
     this.revisionReviewMode = !!options.revisionReview;
     this.server.setOfficeXmlEventConfig(options.officeXmlEvent);
@@ -1672,13 +1732,15 @@ export class EditorManager {
       return this;
     }
 
-    if (!this.isLoadSessionActive(containerId, options.loadSession)) {
+    if (!isActive()) {
+      if (!this.destroyed) this.teardown();
       return this;
     }
 
     await initializeOnlyOffice();
 
-    if (!this.isLoadSessionActive(containerId, options.loadSession)) {
+    if (!isActive()) {
+      if (!this.destroyed) this.teardown();
       return this;
     }
 
@@ -1774,8 +1836,7 @@ export class EditorManager {
 
     try {
       await this.captureDocumentIfDirty();
-      this.destroyDocEditorInstance();
-      this.mountDocEditor();
+      this.remountDocEditor();
     } finally {
       onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
         loading: false,
@@ -1805,8 +1866,7 @@ export class EditorManager {
 
     try {
       await this.captureDocumentIfDirty();
-      this.destroyDocEditorInstance();
-      this.mountDocEditor();
+      this.remountDocEditor();
     } finally {
       onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
         loading: false,
@@ -1840,11 +1900,10 @@ export class EditorManager {
 
   /**
    * @description 通过 iframe 内 asc_wopi_renameFile 重命名当前实例。
-  * SDK 经 socket rpc 收到内存 WOPI 回包后才更新本地标题，因此返回 Promise。
+   * SDK 经 socket rpc 收到内存 WOPI 回包后才更新本地标题，因此返回 Promise。
    */
   renameDocument(fileName: string): Promise<string> {
-    const requestedName =
-      typeof fileName === "string" ? fileName.trim() : "";
+    const requestedName = typeof fileName === "string" ? fileName.trim() : "";
     if (!requestedName) {
       return Promise.reject(
         new Error("OnlyOffice document name cannot be empty"),
@@ -2593,7 +2652,8 @@ export class EditorManager {
     };
   }
 
-  destroy() {
+  private teardown() {
+    this.crossOriginReadOnlySyncGeneration += 1;
     this.rejectPendingRename(new Error("OnlyOffice editor was destroyed"));
     if (this.userSaveTimer !== null) {
       window.clearTimeout(this.userSaveTimer);
@@ -2603,9 +2663,9 @@ export class EditorManager {
     this.teardownWordContentSync();
     this.crossOriginBridgeTeardown?.();
     this.crossOriginBridgeTeardown = null;
+    this.scopedIoTeardown?.();
+    this.scopedIoTeardown = null;
     this.clearOfficeXmlSizeLimitOverlay();
-    unregisterScopedIo(this.containerId);
-    unregisterCrossOriginBridge(this.containerId);
     this.disconnectConnector();
     this.editor?.destroyEditor?.();
     this.editor = null;
@@ -2613,6 +2673,12 @@ export class EditorManager {
     this.comments.clear();
     this.revisions = [];
     this.server.reset();
+  }
+
+  destroy() {
+    this.createGeneration += 1;
+    this.destroyed = true;
+    this.teardown();
   }
 }
 
@@ -2651,14 +2717,17 @@ class EditorManagerFactory {
   }
 
   destroy(containerId: string) {
+    this.beginLoadSession(containerId);
     const manager = this.managers.get(containerId);
     manager?.destroy();
     this.managers.delete(containerId);
   }
 
   destroyAll() {
+    this.beginLoadSession(this.defaultManager.getInstanceId());
     this.defaultManager.destroy();
     for (const manager of this.managers.values()) {
+      this.beginLoadSession(manager.getInstanceId());
       manager.destroy();
     }
     this.managers.clear();
