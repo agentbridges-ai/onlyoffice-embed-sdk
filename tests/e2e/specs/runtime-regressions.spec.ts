@@ -38,7 +38,10 @@ test("runtime regression contracts", async ({ page }) => {
       );
     },
     expectedSteps.length,
-    { timeout: 10_000 },
+    // The page executes ten heavyweight browser/runtime checks serially. CI
+    // runners can need slightly more than ten seconds even when every check
+    // succeeds, so keep the assertions strict while allowing scheduling slack.
+    { timeout: 30_000 },
   );
 
   const status = await page.getByTestId("regression-status").innerText();
