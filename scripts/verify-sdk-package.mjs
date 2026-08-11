@@ -24,6 +24,7 @@ const packageDirectory = path.join(
   "onlyoffice-embed-sdk",
 );
 const expectedPackageName = "@agentbridges-ai/onlyoffice-embed-sdk";
+const forbiddenLegacyComponentName = ["onlyoffice", "web", "comp"].join("-");
 const maximumPackedBytes = 20 * 1024 * 1024;
 const maximumUnpackedBytes = 50 * 1024 * 1024;
 const maximumPackedFileCount = 250;
@@ -273,6 +274,23 @@ async function validateThirdPartyNotices(packageRoot) {
   assert.match(notices, /Copyright 2013 Google Inc\./);
   assert.match(notices, /Apache License\s+Version 2\.0, January 2004/);
   assert.match(notices, /END OF TERMS AND CONDITIONS/);
+}
+
+async function validateCanonicalNaming(packageRoot, packedFiles) {
+  for (const file of packedFiles) {
+    assert.ok(
+      !file.toLowerCase().includes(forbiddenLegacyComponentName),
+      `tarball path contains the legacy component name: ${file}`,
+    );
+    const contents = await readFile(path.join(packageRoot, file));
+    assert.ok(
+      !contents
+        .toString("utf8")
+        .toLowerCase()
+        .includes(forbiddenLegacyComponentName),
+      `tarball file contains the legacy component name: ${file}`,
+    );
+  }
 }
 
 async function validateExcelJsExternal(packageRoot) {
@@ -634,6 +652,10 @@ async function main() {
       ),
     );
     validateMetadata(publishedPackageJson, packedFiles, firstPack.result);
+    await validateCanonicalNaming(
+      path.join(extractedDirectory, "package"),
+      packedFiles,
+    );
     await validateThirdPartyNotices(
       path.join(extractedDirectory, "package"),
     );

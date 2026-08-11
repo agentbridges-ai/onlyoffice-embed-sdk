@@ -5,4 +5,4 @@
  * package build bundles it into dist, so published consumers do not depend on
  * the site repository layout.
  */
-export * from "../../../src/components/onlyoffice-web-comp/index";
+export * from "../../../src/components/onlyoffice-embed-sdk/index";

@@ -2,7 +2,7 @@
 
 /**
  * 单实例演示页：独立 Subframe + RPC 工具栏（上传/导出/主题/语言/只读）。
- * 文档说明见 `onlyoffice-web-comp/docs/单实例示例.md`。
+ * 文档说明见 `onlyoffice-embed-sdk/docs/单实例示例.md`。
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -12,7 +12,7 @@ import {
   DEFAULT_OFFICE_THEME,
   type FileType,
   type OfficeTheme,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 import {
   DemoButton,

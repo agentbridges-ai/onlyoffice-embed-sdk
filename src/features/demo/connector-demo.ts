@@ -1,4 +1,4 @@
-import type { FileType, OnlyOfficeConnector } from "@/components/onlyoffice-web-comp";
+import type { FileType, OnlyOfficeConnector } from "@/components/onlyoffice-embed-sdk";
 import { getFileExtension } from "./office-formats";
 import type { MultiInstanceManager } from "./subframe-manager";
 

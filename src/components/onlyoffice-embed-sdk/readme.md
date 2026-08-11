@@ -34,7 +34,7 @@ The **OnlyOffice Embed SDK** is a browser-side document editor runtime built on 
 ## Package Layout
 
 ```
-onlyoffice-web-comp/
+onlyoffice-embed-sdk/
 ├── const/       Constants, static paths, file types, themes
 ├── store/       Document / language state
 ├── util/        SDK init, x2t conversion, download
@@ -51,7 +51,7 @@ import {
   OnlyOfficeManager,
   ONLYOFFICE_ID,
   FILE_TYPE,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 // Create a blank document
 const manager = await OnlyOfficeManager.create({

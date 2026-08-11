@@ -278,7 +278,7 @@ print_post_upgrade_reminder() {
     · 见 README.zh.md「字体配置」
 
   批注 / 修订
-    · src/components/onlyoffice-web-comp/core/editor-manager.ts
+    · src/components/onlyoffice-embed-sdk/core/editor-manager.ts
     · feature/comments.ts、feature/revisions.ts
     · 建议：node scripts/test-comment-revision-apis.mjs
 

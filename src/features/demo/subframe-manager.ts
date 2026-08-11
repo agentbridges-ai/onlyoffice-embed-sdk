@@ -2,17 +2,17 @@ import type {
   CommentData,
   CommentItem,
   RevisionItem,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 import type {
   FileType,
   OfficeTheme,
   OfficeXmlEventConfig,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 import type {
   OnlyOfficeConnector,
   OnlyOfficeConnectorOptions,
-} from "@/components/onlyoffice-web-comp";
-import { downloadBlob } from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
+import { downloadBlob } from "@/components/onlyoffice-embed-sdk";
 import {
   SUBFRAME_MESSAGE_SOURCE,
   type SubframeConnectorOperation,

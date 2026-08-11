@@ -34,7 +34,7 @@
 ## 目录结构
 
 ```
-onlyoffice-web-comp/
+onlyoffice-embed-sdk/
 ├── const/       常量、静态资源路径、文件类型、主题
 ├── store/       文档 / 语言等跨页面状态
 ├── util/        SDK 初始化、x2t 转换、下载
@@ -51,7 +51,7 @@ import {
   OnlyOfficeManager,
   ONLYOFFICE_ID,
   FILE_TYPE,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 // 新建空白文档
 const manager = await OnlyOfficeManager.create({

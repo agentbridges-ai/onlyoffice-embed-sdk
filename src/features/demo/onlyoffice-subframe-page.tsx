@@ -9,8 +9,8 @@ import {
   type DocumentReadyData,
   type OnlyOfficeConnector,
   type OfficeTheme,
-} from "@/components/onlyoffice-web-comp";
-import type { CommentItem, RevisionItem } from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
+import type { CommentItem, RevisionItem } from "@/components/onlyoffice-embed-sdk";
 import {
   SUBFRAME_EDITOR_CONTAINER_ID,
   SUBFRAME_MESSAGE_SOURCE,

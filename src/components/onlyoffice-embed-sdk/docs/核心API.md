@@ -16,7 +16,7 @@ import {
   ONLYOFFICE_ID,
   FILE_TYPE,
   DEFAULT_OFFICE_THEME,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 const manager = await OnlyOfficeManager.create({
   containerId: ONLYOFFICE_ID,   // 可选，默认 ONLYOFFICE_ID
@@ -53,7 +53,7 @@ import {
   OnlyOfficeManager,
   getStaticResource,
   isOnlyOfficeCdnMode,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 // packages 根地址，目录下应包含 onlyoffice/{version}/...
 OnlyOfficeManager.registerStaticResource({
@@ -138,7 +138,7 @@ import {
   OFFICE_THEME_OPTIONS,
   DEFAULT_OFFICE_THEME,
   type OfficeTheme,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 // 创建时指定初始主题
 const manager = await OnlyOfficeManager.create({
@@ -181,7 +181,7 @@ type OpenDocumentInput = {
 import {
   onlyOfficeManagerFactory,
   FILE_TYPE,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 const manager = await onlyOfficeManagerFactory.open(
   {
@@ -208,7 +208,7 @@ onlyOfficeManagerFactory.destroyAll();
 调用 `initializeOnlyOffice()` 手动初始化 OnlyOffice 静态资源。
 
 ```typescript
-import { initializeOnlyOffice } from "@/components/onlyoffice-web-comp";
+import { initializeOnlyOffice } from "@/components/onlyoffice-embed-sdk";
 
 await initializeOnlyOffice();
 ```
@@ -222,7 +222,7 @@ await initializeOnlyOffice();
 调用 `createEditorView(options)` 直接创建底层编辑器视图。
 
 ```typescript
-import { createEditorView } from "@/components/onlyoffice-web-comp";
+import { createEditorView } from "@/components/onlyoffice-embed-sdk";
 
 await createEditorView({
   isNew: boolean;
@@ -254,7 +254,7 @@ await createEditorView({
 #### 单实例
 
 ```typescript
-import { editorManagerFactory } from "@/components/onlyoffice-web-comp";
+import { editorManagerFactory } from "@/components/onlyoffice-embed-sdk";
 
 const editorManager = editorManagerFactory.getDefault();
 
@@ -320,7 +320,7 @@ editorManagerFactory.destroyAll();
 调用 `convertBinToDocument()` 将 `Editor.bin` 转回目标 Office 文档格式。
 
 ```typescript
-import { convertBinToDocument, FILE_TYPE } from "@/components/onlyoffice-web-comp";
+import { convertBinToDocument, FILE_TYPE } from "@/components/onlyoffice-embed-sdk";
 
 const result = await convertBinToDocument(
   binData.binData,

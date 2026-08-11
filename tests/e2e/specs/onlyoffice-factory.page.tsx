@@ -13,12 +13,12 @@ import {
   isOnlyOfficeCdnMode,
   onlyOfficeManagerFactory,
   onlyofficeEventbus,
-} from "@/components/onlyoffice-web-comp";
-import { mountOfficeEditor } from "@/components/onlyoffice-web-comp/compat/editor";
-import { converter } from "@/components/onlyoffice-web-comp/internal/editor/x2t";
-import { getScopedIoRegistry } from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
-import { getX2tConvertFormats } from "@/components/onlyoffice-web-comp/internal/editor/utils";
-import type { FileType, OfficeTheme } from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
+import { mountOfficeEditor } from "@/components/onlyoffice-embed-sdk/compat/editor";
+import { converter } from "@/components/onlyoffice-embed-sdk/internal/editor/x2t";
+import { getScopedIoRegistry } from "@/components/onlyoffice-embed-sdk/internal/editor/runtime-bridge";
+import { getX2tConvertFormats } from "@/components/onlyoffice-embed-sdk/internal/editor/utils";
+import type { FileType, OfficeTheme } from "@/components/onlyoffice-embed-sdk";
 import type {
   ResourceMode,
   ScenarioResult,

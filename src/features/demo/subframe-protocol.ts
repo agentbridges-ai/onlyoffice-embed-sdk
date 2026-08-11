@@ -2,7 +2,7 @@ import type {
   FileType,
   OfficeTheme,
   OfficeXmlEventConfig,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 /**
  * Parent/subframe communication is deliberately kept small and explicit.
