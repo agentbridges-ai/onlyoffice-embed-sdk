@@ -223,6 +223,6 @@ jobs:
       - name: Publish verified tarball with npm trusted publishing
         run: >-
           npm publish
-          "verified-sdk-package/agentbridges-ai-onlyoffice-embed-sdk-${{ needs.verify.outputs.version }}.tgz"
+          "./verified-sdk-package/agentbridges-ai-onlyoffice-embed-sdk-${{ needs.verify.outputs.version }}.tgz"
           --access public
           --provenance
