@@ -1,6 +1,6 @@
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Browser SDK for embedding and running ONLYOFFICE editors.",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,6 +16,11 @@
       "types": "./dist/types/packages/onlyoffice-embed-sdk/src/compat.d.ts",
       "import": "./dist/compat.js",
       "default": "./dist/compat.js"
+    },
+    "./compat/subframe": {
+      "types": "./dist/types/packages/onlyoffice-embed-sdk/src/compat-subframe.d.ts",
+      "import": "./dist/compat-subframe.js",
+      "default": "./dist/compat-subframe.js"
     }
   },
   "files": [

@@ -1,5 +1,10 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
-import { ONLYOFFICE_EMBED_SDK_VERSION } from "./components/onlyoffice-embed-sdk/compat/version";
+import {
+  ONLYOFFICE_EMBED_HOST_ASSET_DIGEST,
+  ONLYOFFICE_EMBED_HOST_BUILD_ID,
+  ONLYOFFICE_EMBED_HOST_MANIFEST,
+  ONLYOFFICE_EMBED_SDK_VERSION,
+} from "./components/onlyoffice-embed-sdk/compat/version";
 
 const STATIC_RESOURCE_ORIGIN =
   "https://onlyoffice-embed-resource.pages.dev";
@@ -34,6 +39,12 @@ function fetchVersion(request: Request): Response | null {
     name: SDK_PACKAGE_NAME,
     version: ONLYOFFICE_EMBED_SDK_VERSION,
     release: `sdk-v${ONLYOFFICE_EMBED_SDK_VERSION}`,
+    hostIdentity: {
+      packageVersion: ONLYOFFICE_EMBED_SDK_VERSION,
+      hostBuildId: ONLYOFFICE_EMBED_HOST_BUILD_ID,
+      assetManifestDigest: ONLYOFFICE_EMBED_HOST_ASSET_DIGEST,
+    },
+    runtimeManifest: ONLYOFFICE_EMBED_HOST_MANIFEST,
   });
 
   return new Response(request.method === "HEAD" ? null : body, {

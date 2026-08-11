@@ -41,6 +41,10 @@ import {
 } from "@/components/onlyoffice-embed-sdk/compat";
 import { OfficePluginBridge } from "@/components/onlyoffice-embed-sdk/compat/plugin-bridge";
 import { OfficeRuntimeResourceCompatibilityError } from "@/components/onlyoffice-embed-sdk/compat/runtime-resources";
+import {
+  runCompatSubframeFacadeTests,
+  runRealCompatSubframeActivationTests,
+} from "./compat-subframe-facade.page";
 
 type RegressionStep = {
   name: string;
@@ -1441,6 +1445,40 @@ async function testCompatibilityNativeOutputCallbacks() {
     dispatchDocumentStateChange({ data: true });
     await waitFor(() => instance?.getState().dirty === true);
 
+    let signalCopyCaptureStarted: (() => void) | undefined;
+    const copyCaptureStarted = new Promise<void>((resolve) => {
+      signalCopyCaptureStarted = resolve;
+    });
+    const copyDirtyChangeStart = dirtyChanges.length;
+    handleDownloadAs = (format) => {
+      assert(format === "bin", "exportCopy did not request an Editor.bin snapshot");
+      signalCopyCaptureStarted?.();
+    };
+    const copyPromise = instance.exportCopy("odt");
+    await copyCaptureStarted;
+    const copyResponse = await postDownloadAs(
+      {
+        c: "save",
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+        title: "New_Document.docx",
+        nobase64: true,
+        isSaveAs: true,
+        saveAsPath: null,
+      },
+      new TextEncoder().encode("DOCY;v5;copy-export"),
+    );
+    assert(copyResponse.ok, "exportCopy snapshot request failed");
+    const copiedFile = await copyPromise;
+    handleDownloadAs = undefined;
+    await delay(150);
+    assert(
+      copiedFile.name.endsWith(".odt") &&
+        instance.getState().dirty &&
+        !dirtyChanges.slice(copyDirtyChangeStart).includes(false),
+      "exportCopy acknowledged persistence or cleared the dirty revision",
+    );
+
     let signalCaptureStarted: (() => void) | undefined;
     const captureStarted = new Promise<void>((resolve) => {
       signalCaptureStarted = resolve;
@@ -1808,6 +1846,7 @@ async function runRegressionTests(onChange: (steps: RegressionStep[]) => void) {
 }
 
 export function RuntimeRegressionsE2EPage() {
+  const [suite, setSuite] = useState<"regressions" | "compat" | "real-compat">("regressions");
   const [result, setResult] = useState<{
     status: "running" | "passed" | "failed";
     steps: RegressionStep[];
@@ -1815,7 +1854,19 @@ export function RuntimeRegressionsE2EPage() {
 
   useEffect(() => {
     let disposed = false;
-    runRegressionTests((next) => {
+    const harness = new URLSearchParams(window.location.search).get("harness");
+    const nextSuite = harness === "compat-subframe"
+      ? "compat"
+      : harness === "real-compat-subframe"
+        ? "real-compat"
+        : "regressions";
+    setSuite(nextSuite);
+    const runner = nextSuite === "compat"
+      ? runCompatSubframeFacadeTests
+      : nextSuite === "real-compat"
+        ? runRealCompatSubframeActivationTests
+        : runRegressionTests;
+    runner((next) => {
       if (!disposed) setResult({ status: "running", steps: next });
     })
       .then((finalSteps) => {
@@ -1835,9 +1886,19 @@ export function RuntimeRegressionsE2EPage() {
 
   return (
     <main className="p-4">
-      <h1>Runtime regressions</h1>
-      <p data-testid="regression-status">{result.status}</p>
-      <pre data-testid="regression-result">
+      <h1>{suite === "regressions" ? "Runtime regressions" : "Compatibility subframe facade"}</h1>
+      <p data-testid={suite === "compat"
+        ? "compat-facade-status"
+        : suite === "real-compat"
+          ? "real-compat-facade-status"
+          : "regression-status"}>
+        {result.status}
+      </p>
+      <pre data-testid={suite === "compat"
+        ? "compat-facade-result"
+        : suite === "real-compat"
+          ? "real-compat-facade-result"
+          : "regression-result"}>
         {JSON.stringify(result.steps, null, 2)}
       </pre>
     </main>

@@ -153,9 +153,13 @@ function validateMetadata(packageJson, packedFiles, packResult) {
   );
   assert.ok(packageJson.exports?.["."], "root export is required");
   assert.ok(packageJson.exports?.["./compat"], "compat export is required");
+  assert.ok(
+    packageJson.exports?.["./compat/subframe"],
+    "compat subframe export is required",
+  );
 
   const requiredTargets = [packageJson.main, packageJson.types];
-  for (const exportName of [".", "./compat"]) {
+  for (const exportName of [".", "./compat", "./compat/subframe"]) {
     requiredTargets.push(
       resolveExportTarget(packageJson.exports[exportName], "import"),
       resolveExportTarget(packageJson.exports[exportName], "types"),
@@ -412,6 +416,7 @@ async function writeConsumerFixture(
     path.join(sourceDirectory, "browser.ts"),
     `import * as sdk from "${expectedPackageName}";
 import * as compat from "${expectedPackageName}/compat";
+import * as compatSubframe from "${expectedPackageName}/compat/subframe";
 import type {
   CreateOfficeEditorOptions,
   OfficeEditorInstance,
@@ -420,6 +425,12 @@ import type {
   OfficeHostUrlContext,
   OfficeHostUrlResolver,
 } from "${expectedPackageName}/compat";
+import type {
+  CreateOfficeEditorOptions as SubframeCreateOfficeEditorOptions,
+  OfficeEditorInstance as SubframeOfficeEditorInstance,
+  OfficeEditorMount as SubframeOfficeEditorMount,
+  OfficeSubframeSlot,
+} from "${expectedPackageName}/compat/subframe";
 
 declare const options: CreateOfficeEditorOptions;
 declare const instance: OfficeEditorInstance;
@@ -428,6 +439,11 @@ declare const identity: OfficeHostIdentity;
 declare const context: OfficeHostUrlContext;
 declare const resolver: OfficeHostUrlResolver;
 void [options, instance, mount, identity, context, resolver];
+declare const subframeOptions: SubframeCreateOfficeEditorOptions;
+declare const subframeInstance: SubframeOfficeEditorInstance;
+declare const subframeMount: SubframeOfficeEditorMount;
+declare const subframeSlot: OfficeSubframeSlot;
+void [subframeOptions, subframeInstance, subframeMount, subframeSlot];
 
 const requiredRootExports = [
   "OnlyOfficeManager",
@@ -440,12 +456,23 @@ const requiredCompatExports = [
   "createOfficeRuntimeResourceManager",
   "ONLYOFFICE_EMBED_SDK_VERSION",
 ] as const;
+const requiredCompatSubframeExports = [
+  "createOfficeEditor",
+  "mountOfficeEditor",
+  "getOfficeSubframeOrigin",
+  "COMPAT_SUBFRAME_PROTOCOL_SOURCE",
+  "HOSTED_COMPAT_SUBFRAME_IDENTITY",
+  "ONLYOFFICE_EMBED_HOST_MANIFEST",
+] as const;
 
 for (const name of requiredRootExports) {
   if (typeof sdk[name] === "undefined") throw new Error(\`Missing root export: \${name}\`);
 }
 for (const name of requiredCompatExports) {
   if (typeof compat[name] === "undefined") throw new Error(\`Missing compat export: \${name}\`);
+}
+for (const name of requiredCompatSubframeExports) {
+  if (typeof compatSubframe[name] === "undefined") throw new Error(\`Missing compat subframe export: \${name}\`);
 }
 if (compat.ONLYOFFICE_EMBED_SDK_VERSION !== ${JSON.stringify(sdkPackageJson.version)}) {
   throw new Error(\`SDK identity version does not match the installed package: \${compat.ONLYOFFICE_EMBED_SDK_VERSION}\`);
@@ -459,10 +486,12 @@ document.querySelector("#app")!.textContent = "onlyoffice-embed-sdk consumer rea
     path.join(sourceDirectory, "ssr.mjs"),
     `import * as sdk from "${expectedPackageName}";
 import * as compat from "${expectedPackageName}/compat";
+import * as compatSubframe from "${expectedPackageName}/compat/subframe";
 
 for (const [namespace, values, names] of [
   ["root", sdk, ["OnlyOfficeManager", "onlyOfficeManagerFactory", "registerOnlyOfficeStaticResource"]],
   ["compat", compat, ["createOfficeEditor", "mountOfficeEditor", "createOfficeRuntimeResourceManager", "ONLYOFFICE_EMBED_SDK_VERSION"]],
+  ["compat subframe", compatSubframe, ["createOfficeEditor", "mountOfficeEditor", "getOfficeSubframeOrigin", "COMPAT_SUBFRAME_PROTOCOL_SOURCE", "HOSTED_COMPAT_SUBFRAME_IDENTITY", "ONLYOFFICE_EMBED_HOST_MANIFEST"]],
 ]) {
   for (const name of names) {
     if (typeof values[name] === "undefined") throw new Error(\`Missing \${namespace} export: \${name}\`);

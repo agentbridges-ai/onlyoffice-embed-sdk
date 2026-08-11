@@ -19,6 +19,7 @@ export default defineConfig({
       entry: {
         index: fromPackageRoot("./src/index.ts"),
         compat: fromPackageRoot("./src/compat.ts"),
+        "compat-subframe": fromPackageRoot("./src/compat-subframe.ts"),
       },
       formats: ["es"],
       fileName: (_format, entryName) => `${entryName}.js`,

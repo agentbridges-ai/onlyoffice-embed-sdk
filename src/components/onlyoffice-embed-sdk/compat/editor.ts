@@ -16,6 +16,7 @@ import type {
 import { getOnlyOfficeMimeType } from "../util/document-file";
 import { initializeOnlyOffice } from "../util/initialize";
 import { convertBinToDocument } from "../util/x2t";
+import type { OnlyOfficeLang } from "../store/lang";
 import { OfficePluginBridge } from "./plugin-bridge";
 import {
   ONLYOFFICE_EMBED_HOST_BUILD_ID,
@@ -141,11 +142,15 @@ export interface OfficeEditorInstance {
   readonly id: string;
   invokePlugin(pluginGuid: string, payload: unknown): Promise<unknown>;
   save(targetExt?: string): Promise<File>;
+  /** Export a copy without marking the current document as persisted. */
+  exportCopy(targetExt?: string): Promise<File>;
   confirmSaveToNewFormat(
     options?: OfficeSaveToNewFormatConfirmationOptions,
   ): Promise<boolean>;
   setInterfaceTheme(theme: OfficeInterfaceTheme): void;
   setReadonly(readonly: boolean): void;
+  /** Changes the editor language while preserving the current document. */
+  setLanguage(lang: string): Promise<void>;
   destroy(): Promise<void>;
   getState(): OfficeEditorState;
   getHostIdentity(): OfficeHostIdentity;
@@ -903,6 +908,41 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     return operation;
   }
 
+  exportCopy(targetExt?: string): Promise<File> {
+    if (this.destroyed || !this.manager || this.state.status !== "ready") {
+      return Promise.reject(new Error("Editor is not open"));
+    }
+    if (this.savePromise) {
+      return Promise.reject(
+        new Error("A save request is already in progress for this editor"),
+      );
+    }
+    const manager = this.manager;
+    let operation: Promise<File>;
+    operation = (async () => {
+      const exported = await manager.exportCopy();
+      const extension = normalizeExtension(targetExt, this.state.fileType);
+      const converted = await convertBinToDocument(
+        exported.binData,
+        exported.fileName || this.state.fileName,
+        extension,
+        exported.media,
+        exported.themes,
+        manager.getLogger(),
+      );
+      return makeFile(
+        this.ownerWindow,
+        [converted.data as BlobPart],
+        converted.fileName,
+        getOnlyOfficeMimeType(extension),
+      );
+    })().finally(() => {
+      if (this.savePromise === operation) this.savePromise = null;
+    });
+    this.savePromise = operation;
+    return operation;
+  }
+
   private async saveInternal(manager: EditorManager, targetExt?: string) {
     // export() clears EditorManager.dirty before the consumer persistence
     // callback settles. Preserve the pre-save dirty state so the 100ms poll
@@ -1046,6 +1086,15 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
           notifyOfficeEditorError(this.options.onError, toError(error), this),
         );
     }
+  }
+
+  async setLanguage(lang: string): Promise<void> {
+    if (this.destroyed || !this.manager) {
+      throw new Error("Editor is not open");
+    }
+    if (!lang.trim()) throw new Error("OnlyOffice language is required");
+    this.options.lang = lang;
+    await this.manager.setLanguage(lang as OnlyOfficeLang);
   }
 
   getState(): OfficeEditorState {
