@@ -132,11 +132,11 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.1.4`, the expected identity is:
+application's release manifest. For SDK `0.1.5`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.1.4",
+  "packageVersion": "0.1.5",
   "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
@@ -193,7 +193,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.1.4`. Before the first real release, an organization owner must:
+`sdk-v0.1.5`. Before the first real release, an organization owner must:
 
 1. Publish a minimal `@agentbridges-ai/onlyoffice-embed-sdk@0.0.0` placeholder
    with `npm publish --access public --tag bootstrap`. Do not manually publish
@@ -203,7 +203,7 @@ Release tags use stable versions only: `sdk-v<package-version>`, for example
    environment.
 3. Create that GitHub environment with required reviewers, and protect `main`
    plus `sdk-v*` tag creation with repository rules.
-4. Push a GitHub-verified signed annotated `sdk-v0.1.4` tag. The workflow then
+4. Push a GitHub-verified signed annotated `sdk-v0.1.5` tag. The workflow then
    verifies and publishes the exact checked tarball with npm OIDC provenance.
 
 Prerelease versions are intentionally rejected; add an explicit dist-tag
