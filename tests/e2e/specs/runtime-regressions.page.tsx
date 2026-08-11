@@ -1597,12 +1597,17 @@ async function testCompatibilityNativeOutputCallbacks() {
 }
 
 async function testCrossDocumentCompatMount() {
-  const popup = window.open(
-    "about:blank",
-    `onlyoffice-cross-document-${Date.now()}`,
-    "popup,width=640,height=480",
-  );
-  assert(popup, "same-origin popup Window was blocked");
+  // Use a same-origin child browsing context for the owner-Document contract.
+  // A second script-opened popup can be left with a suspended event loop by
+  // headless Chromium after the native-output regression closes its popup.
+  // The iframe still provides an independent Window and Document without
+  // relying on browser popup lifecycle policy.
+  const documentHost = document.createElement("iframe");
+  documentHost.hidden = true;
+  documentHost.src = "about:blank";
+  document.body.appendChild(documentHost);
+  const popup = documentHost.contentWindow;
+  assert(popup, "same-origin child Window was not created");
 
   const containerId = `cross-document-host-${Date.now()}`;
   const rootContainer = document.createElement("div");
@@ -1761,7 +1766,7 @@ async function testCrossDocumentCompatMount() {
     await rootMount.destroy();
     editorManagerFactory.destroy(rootContainer);
     rootContainer.remove();
-    popup.close();
+    documentHost.remove();
     resetOnlyOfficeStaticResource();
   }
 }
