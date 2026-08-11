@@ -60,10 +60,30 @@ pnpm dev
 | `/docs` | OnlyOffice Embed SDK 文档（直接渲染 Markdown） |
 | `/docs/demos/single` | 单实例在线示例 |
 | `/docs/demos/multi` | 多实例 Tab 在线示例 |
+| `/api/version` | 当前可安装 SDK 版本（JSON） |
 
 3. 上传本地文件 → 编辑 → 导出
 
 旧路由 `/examples` 会重定向到单实例示例；`/multi` 会重定向到多实例示例。
+
+## 版本接口
+
+首页版本徽标直接读取公开接口，不依赖页面内硬编码：
+
+```bash
+curl https://onlyoffice.agent-bridges.com/api/version
+```
+
+```json
+{
+  "name": "@agentbridges-ai/onlyoffice-embed-sdk",
+  "version": "0.1.5",
+  "release": "sdk-v0.1.5"
+}
+```
+
+接口支持 `GET`、`HEAD` 和跨域查询，并使用 `Cache-Control: no-store`
+确保返回当前部署版本。
 
 ## OnlyOffice Embed SDK 文档
 

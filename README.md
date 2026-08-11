@@ -60,10 +60,31 @@ pnpm dev
 | `/docs` | OnlyOffice Embed SDK documentation (rendered from Markdown) |
 | `/docs/demos/single` | Single-instance editor demo |
 | `/docs/demos/multi` | Multi-instance Tab demo |
+| `/api/version` | Current installable SDK version (JSON) |
 
 3. Upload a file → edit → export
 
 Legacy route `/examples` redirects to the single-instance demo; `/multi` redirects to the multi-instance demo.
+
+## Version API
+
+The landing-page version badge reads the public endpoint directly instead of
+embedding a separate display value:
+
+```bash
+curl https://onlyoffice.agent-bridges.com/api/version
+```
+
+```json
+{
+  "name": "@agentbridges-ai/onlyoffice-embed-sdk",
+  "version": "0.1.5",
+  "release": "sdk-v0.1.5"
+}
+```
+
+The endpoint supports `GET`, `HEAD`, and cross-origin queries. It sends
+`Cache-Control: no-store` so consumers receive the currently deployed version.
 
 ## OnlyOffice Embed SDK Docs
 
