@@ -3,7 +3,7 @@
 /**
  * 产品主页：Hero、特性网格、快速集成步骤与代码片段。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { OfficeHeroVisual } from "./office-hero-visual";
 import { SiteLinkButton, SiteSectionTitle, SiteCard, SITE_GITHUB } from "@/features/shell";
 
@@ -46,6 +46,46 @@ const manager = await OnlyOfficeManager.create({
   defaultFileName: "New_Document.docx",
 });`;
 
+type VersionResponse = {
+  version?: unknown;
+};
+
+function SdkVersionBadge() {
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void fetch("/api/version", {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as VersionResponse;
+        if (typeof payload.version === "string") setVersion(payload.version);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          console.warn("Unable to load SDK version", error);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  return (
+    <a
+      href="/api/version"
+      data-testid="sdk-version"
+      className="inline-flex border border-neutral-300 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-600 hover:border-neutral-500 hover:text-neutral-900"
+      aria-label={version ? `SDK version ${version}` : "SDK version"}
+    >
+      {version ? `SDK v${version}` : "SDK version"}
+    </a>
+  );
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -71,9 +111,12 @@ export function HomePage() {
         <div className="site-hero-grid pointer-events-none absolute inset-0" />
         <div className="relative mx-auto grid max-w-7xl gap-12 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-24">
           <div>
-            <p className="mb-5 inline-flex border border-neutral-300 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-600">
-              Browser-native · No Document Server
-            </p>
+            <div className="mb-5 flex flex-wrap gap-2">
+              <p className="inline-flex border border-neutral-300 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-600">
+                Browser-native · No Document Server
+              </p>
+              <SdkVersionBadge />
+            </div>
             <h1 className="max-w-xl text-[clamp(2.25rem,5.5vw,3.75rem)] font-semibold leading-[1.05] tracking-[-0.04em] text-neutral-950">
               将 OnlyOffice
               <br />
