@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { FILE_TYPE } from "@/components/onlyoffice-web-comp";
+import { FILE_TYPE } from "@/components/onlyoffice-embed-sdk";
 import { DocsDemoPage } from "@/features/docs/components/docs-demo-page";
 import { readCompDoc } from "@/features/docs/lib/server";
 import { OfficePreviewPage } from "@/features/demo/office-preview-page";

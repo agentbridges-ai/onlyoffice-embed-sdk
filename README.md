@@ -11,7 +11,7 @@ This repository has two parts:
 | Part | Path | Description |
 |------|------|-------------|
 | **Publishable SDK** | [`packages/onlyoffice-embed-sdk/`](packages/onlyoffice-embed-sdk/) | `@agentbridges-ai/onlyoffice-embed-sdk` package, build, and migration guide |
-| **Shared implementation** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | Editor, x2t, bridge, compatibility facade, and Markdown docs |
+| **Shared implementation** | [`src/components/onlyoffice-embed-sdk/`](src/components/onlyoffice-embed-sdk/) | Editor, x2t, bridge, compatibility facade, and Markdown docs |
 | **Demo site** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start file routes on a Cloudflare Worker |
 
 ## Project Positioning
@@ -30,7 +30,7 @@ The package integration path is:
 
 The package-specific installation, CSP, compatibility, and release details are in [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md).
 
-Static resource resolution is centralized in [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts). Both local and CDN modes use the Developer Edition Docker-exported 9.4 SDK at `/packages/onlyoffice/9.4.0-develop` by default; `onlyofficeVersion` can override the CDN directory when needed.
+Static resource resolution is centralized in [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts). Both local and CDN modes use the Developer Edition Docker-exported 9.4 SDK at `/packages/onlyoffice/9.4.0-develop` by default; `onlyofficeVersion` can override the CDN directory when needed.
 
 ## Core Advantages
 
@@ -69,21 +69,21 @@ Legacy route `/examples` redirects to the single-instance demo; `/multi` redirec
 
 **API details live in the OnlyOffice Embed SDK docs**, not duplicated here.
 
-- **Entry**: [OnlyOffice Embed SDK README (English)](src/components/onlyoffice-web-comp/readme.md)
-- **Overview**: [docs/概述.md](src/components/onlyoffice-web-comp/docs/概述.md)
+- **Entry**: [OnlyOffice Embed SDK README (English)](src/components/onlyoffice-embed-sdk/readme.md)
+- **Overview**: [docs/概述.md](src/components/onlyoffice-embed-sdk/docs/概述.md)
 
 | Doc | Topic |
 |-----|-------|
-| [Quick Start](src/components/onlyoffice-web-comp/docs/快速开始.md) | Init and container mount |
-| [Core API](src/components/onlyoffice-web-comp/docs/核心API.md) | `OnlyOfficeManager`, multi-instance |
-| [Events](src/components/onlyoffice-web-comp/docs/事件系统.md) | EventBus |
-| [Examples](src/components/onlyoffice-web-comp/docs/完整示例.md) | React integration patterns |
-| [Reference](src/components/onlyoffice-web-comp/docs/API参考.md) | Constants and types |
-| [Notes & Formats](src/components/onlyoffice-web-comp/docs/注意事项与支持格式.md) | Prerequisites and formats |
-| [Fonts](src/components/onlyoffice-web-comp/docs/字体配置.md) | Custom font registration |
-| [Comments & Revisions](src/components/onlyoffice-web-comp/docs/批注修订与-Word-API.md) | Comments and revisions |
-| [Single-instance Demo](src/components/onlyoffice-web-comp/docs/单实例示例.md) | Single editor demo + source |
-| [Multi-instance Demo](src/components/onlyoffice-web-comp/docs/多实例示例.md) | Full Tab demo source |
+| [Quick Start](src/components/onlyoffice-embed-sdk/docs/快速开始.md) | Init and container mount |
+| [Core API](src/components/onlyoffice-embed-sdk/docs/核心API.md) | `OnlyOfficeManager`, multi-instance |
+| [Events](src/components/onlyoffice-embed-sdk/docs/事件系统.md) | EventBus |
+| [Examples](src/components/onlyoffice-embed-sdk/docs/完整示例.md) | React integration patterns |
+| [Reference](src/components/onlyoffice-embed-sdk/docs/API参考.md) | Constants and types |
+| [Notes & Formats](src/components/onlyoffice-embed-sdk/docs/注意事项与支持格式.md) | Prerequisites and formats |
+| [Fonts](src/components/onlyoffice-embed-sdk/docs/字体配置.md) | Custom font registration |
+| [Comments & Revisions](src/components/onlyoffice-embed-sdk/docs/批注修订与-Word-API.md) | Comments and revisions |
+| [Single-instance Demo](src/components/onlyoffice-embed-sdk/docs/单实例示例.md) | Single editor demo + source |
+| [Multi-instance Demo](src/components/onlyoffice-embed-sdk/docs/多实例示例.md) | Full Tab demo source |
 
 ```typescript
 import {
@@ -96,7 +96,7 @@ import {
 ## Project Structure
 
 ```
-onlyoffice-web-comp/
+onlyoffice-embed-sdk/
 ├── packages/
 │   └── onlyoffice-embed-sdk/             # Publishable ESM package
 ├── src/
@@ -114,12 +114,12 @@ onlyoffice-web-comp/
 │   │   ├── marketing/                    # Landing page
 │   │   └── shell/                        # Site header / footer / layout
 │   └── components/
-│       └── onlyoffice-web-comp/          # OnlyOffice Embed SDK wrapper + docs/*.md source
+│       └── onlyoffice-embed-sdk/          # OnlyOffice Embed SDK wrapper + docs/*.md source
 ├── public/                               # OnlyOffice SDK static assets
 └── ...
 ```
 
-Docs pages read Markdown directly from `src/components/onlyoffice-web-comp/docs/`. Demo tabs embed live editors from the OnlyOffice Embed SDK in `src/features/demo/`.
+Docs pages read Markdown directly from `src/components/onlyoffice-embed-sdk/docs/`. Demo tabs embed live editors from the OnlyOffice Embed SDK in `src/features/demo/`.
 
 ## Tech Stack
 
@@ -161,14 +161,14 @@ https://onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/ap
 Use that Pages origin as the runtime resource root:
 
 ```typescript
-import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
+import { OnlyOfficeManager } from "@/components/onlyoffice-embed-sdk";
 
 OnlyOfficeManager.registerStaticResource({
   cdnOrigin: "https://onlyoffice-embed-resource.pages.dev",
 });
 ```
 
-`cdnOrigin` points to the uploaded `public/packages` root, so do not append `/packages`. Configure this resource origin in [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) by editing the `cdnOrigin` logic in `buildStaticResource`. Cloudflare Pages Direct Upload supports Wrangler folder uploads; dashboard drag-and-drop is less suitable for this repository because the SDK contains many files.
+`cdnOrigin` points to the uploaded `public/packages` root, so do not append `/packages`. Configure this resource origin in [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts) by editing the `cdnOrigin` logic in `buildStaticResource`. Cloudflare Pages Direct Upload supports Wrangler folder uploads; dashboard drag-and-drop is less suitable for this repository because the SDK contains many files.
 
 ### GitHub Actions production deployment
 
@@ -183,7 +183,7 @@ The application uses the stable Pages origin `https://onlyoffice-embed-resource.
 
 ## Fonts
 
-Custom fonts are registered via **`__custom_font_registry__`**, with **`ttf-to-catalog-font.mjs`** producing OnlyOffice catalog wire-format files. See **[Fonts](src/components/onlyoffice-web-comp/docs/字体配置.md)** in the component docs for the full guide.
+Custom fonts are registered via **`__custom_font_registry__`**, with **`ttf-to-catalog-font.mjs`** producing OnlyOffice catalog wire-format files. See **[Fonts](src/components/onlyoffice-embed-sdk/docs/字体配置.md)** in the component docs for the full guide.
 
 Quick outline:
 

@@ -11,7 +11,7 @@
 | 部分 | 路径 | 说明 |
 |------|------|------|
 | **可发布 SDK** | [`packages/onlyoffice-embed-sdk/`](packages/onlyoffice-embed-sdk/) | `@agentbridges-ai/onlyoffice-embed-sdk` 包、构建与迁移说明 |
-| **共享实现** | [`src/components/onlyoffice-web-comp/`](src/components/onlyoffice-web-comp/) | 编辑器、x2t、bridge、兼容层与 Markdown 文档源 |
+| **共享实现** | [`src/components/onlyoffice-embed-sdk/`](src/components/onlyoffice-embed-sdk/) | 编辑器、x2t、bridge、兼容层与 Markdown 文档源 |
 | **演示站点** | [`src/app/`](src/app/) + [`src/features/`](src/features/) | TanStack Start 文件路由 + Cloudflare Worker |
 
 ## 项目定位
@@ -30,7 +30,7 @@
 
 安装、CSP、兼容差异和发布约定详见 [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md)。
 
-静态资源读取统一在 [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) 配置。本地与 CDN 模式默认均读取 Developer Edition Docker 导出的 9.4 SDK：`/packages/onlyoffice/9.4.0-develop`；如 CDN 目录不同，可通过 `onlyofficeVersion` 覆盖。
+静态资源读取统一在 [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts) 配置。本地与 CDN 模式默认均读取 Developer Edition Docker 导出的 9.4 SDK：`/packages/onlyoffice/9.4.0-develop`；如 CDN 目录不同，可通过 `onlyofficeVersion` 覆盖。
 
 ## 核心优势
 
@@ -69,21 +69,21 @@ pnpm dev
 
 **API 与接入说明不在本 README 重复**，请阅读组件库文档：
 
-- **入口**：[OnlyOffice Embed SDK README（中文）](src/components/onlyoffice-web-comp/readme.zh.md)
-- **概述**：[docs/概述.md](src/components/onlyoffice-web-comp/docs/概述.md)
+- **入口**：[OnlyOffice Embed SDK README（中文）](src/components/onlyoffice-embed-sdk/readme.zh.md)
+- **概述**：[docs/概述.md](src/components/onlyoffice-embed-sdk/docs/概述.md)
 
 | 文档 | 内容 |
 |------|------|
-| [快速开始](src/components/onlyoffice-web-comp/docs/快速开始.md) | 初始化与容器挂载 |
-| [核心API](src/components/onlyoffice-web-comp/docs/核心API.md) | `OnlyOfficeManager`、多实例 |
-| [事件系统](src/components/onlyoffice-web-comp/docs/事件系统.md) | EventBus |
-| [完整示例](src/components/onlyoffice-web-comp/docs/完整示例.md) | React 集成模式 |
-| [API参考](src/components/onlyoffice-web-comp/docs/API参考.md) | 常量与类型 |
-| [注意事项与格式](src/components/onlyoffice-web-comp/docs/注意事项与支持格式.md) | 前置条件与格式 |
-| [字体配置](src/components/onlyoffice-web-comp/docs/字体配置.md) | 自定义字体注册 |
-| [批注修订](src/components/onlyoffice-web-comp/docs/批注修订与-Word-API.md) | 批注、修订 |
-| [单实例示例](src/components/onlyoffice-web-comp/docs/单实例示例.md) | 单实例 Demo 与源码说明 |
-| [多实例示例](src/components/onlyoffice-web-comp/docs/多实例示例.md) | Tab 多实例完整源码 |
+| [快速开始](src/components/onlyoffice-embed-sdk/docs/快速开始.md) | 初始化与容器挂载 |
+| [核心API](src/components/onlyoffice-embed-sdk/docs/核心API.md) | `OnlyOfficeManager`、多实例 |
+| [事件系统](src/components/onlyoffice-embed-sdk/docs/事件系统.md) | EventBus |
+| [完整示例](src/components/onlyoffice-embed-sdk/docs/完整示例.md) | React 集成模式 |
+| [API参考](src/components/onlyoffice-embed-sdk/docs/API参考.md) | 常量与类型 |
+| [注意事项与格式](src/components/onlyoffice-embed-sdk/docs/注意事项与支持格式.md) | 前置条件与格式 |
+| [字体配置](src/components/onlyoffice-embed-sdk/docs/字体配置.md) | 自定义字体注册 |
+| [批注修订](src/components/onlyoffice-embed-sdk/docs/批注修订与-Word-API.md) | 批注、修订 |
+| [单实例示例](src/components/onlyoffice-embed-sdk/docs/单实例示例.md) | 单实例 Demo 与源码说明 |
+| [多实例示例](src/components/onlyoffice-embed-sdk/docs/多实例示例.md) | Tab 多实例完整源码 |
 
 ```typescript
 import {
@@ -96,7 +96,7 @@ import {
 ## 项目结构
 
 ```
-onlyoffice-web-comp/
+onlyoffice-embed-sdk/
 ├── packages/
 │   └── onlyoffice-embed-sdk/             # 可发布 ESM 包
 ├── src/
@@ -114,12 +114,12 @@ onlyoffice-web-comp/
 │   │   ├── marketing/                    # 着陆页
 │   │   └── shell/                        # 站点 Header / Footer / Layout
 │   └── components/
-│       └── onlyoffice-web-comp/          # OnlyOffice Embed SDK 封装 + docs/*.md 文档源
+│       └── onlyoffice-embed-sdk/          # OnlyOffice Embed SDK 封装 + docs/*.md 文档源
 ├── public/                               # OnlyOffice SDK 静态资源
 └── ...
 ```
 
-文档页直接读取 `src/components/onlyoffice-web-comp/docs/` 下的 Markdown；示例 Tab 内嵌 `src/features/demo/` 的可交互 OnlyOffice Embed SDK 编辑器。
+文档页直接读取 `src/components/onlyoffice-embed-sdk/docs/` 下的 Markdown；示例 Tab 内嵌 `src/features/demo/` 的可交互 OnlyOffice Embed SDK 编辑器。
 
 ## 技术栈
 
@@ -161,14 +161,14 @@ https://onlyoffice-embed-resource.pages.dev/onlyoffice/9.4.0-develop/web-apps/ap
 在运行时把 Pages origin 注册为静态资源根地址：
 
 ```typescript
-import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
+import { OnlyOfficeManager } from "@/components/onlyoffice-embed-sdk";
 
 OnlyOfficeManager.registerStaticResource({
   cdnOrigin: "https://onlyoffice-embed-resource.pages.dev",
 });
 ```
 
-`cdnOrigin` 对应上传后的 `public/packages` 根目录，不需要再追加 `/packages`。在 [`src/components/onlyoffice-web-comp/const/index.ts`](src/components/onlyoffice-web-comp/const/index.ts) 中修改 `buildStaticResource` 的 `cdnOrigin` 逻辑即可固定资源来源。Cloudflare Pages Direct Upload 支持用 Wrangler 上传目录；由于 SDK 文件数量较多，Dashboard 拖拽上传不太适合本仓库。
+`cdnOrigin` 对应上传后的 `public/packages` 根目录，不需要再追加 `/packages`。在 [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts) 中修改 `buildStaticResource` 的 `cdnOrigin` 逻辑即可固定资源来源。Cloudflare Pages Direct Upload 支持用 Wrangler 上传目录；由于 SDK 文件数量较多，Dashboard 拖拽上传不太适合本仓库。
 
 ### GitHub Actions 生产发布
 
@@ -183,7 +183,7 @@ OnlyOfficeManager.registerStaticResource({
 
 ## 字体配置
 
-自定义字体通过 **`__custom_font_registry__`** 注册，配合 **`ttf-to-catalog-font.mjs`** 生成 OnlyOffice catalog 线格式。完整步骤见组件库文档 **[字体配置](src/components/onlyoffice-web-comp/docs/字体配置.md)**。
+自定义字体通过 **`__custom_font_registry__`** 注册，配合 **`ttf-to-catalog-font.mjs`** 生成 OnlyOffice catalog 线格式。完整步骤见组件库文档 **[字体配置](src/components/onlyoffice-embed-sdk/docs/字体配置.md)**。
 
 简要流程：
 

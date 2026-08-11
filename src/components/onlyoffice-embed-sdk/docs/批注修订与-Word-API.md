@@ -7,11 +7,11 @@
 ## 批注 API
 
 ```typescript
-import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
+import { OnlyOfficeManager } from "@/components/onlyoffice-embed-sdk";
 import type {
   CommentInput,
   CommentChangeHandlers,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 const manager = await OnlyOfficeManager.create({
   fileType: "docx",
@@ -52,7 +52,7 @@ unregister();
 import type {
   RevisionItem,
   RevisionChangeHandlers,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 editor.setTrackRevisions(true);
 const tracking = editor.isTrackRevisions();
@@ -102,7 +102,7 @@ unregisterRev();
 直接订阅 `AscWordApiMethod`，底层调用 `asc_registerCallback` / `asc_unregisterCallback`：
 
 ```typescript
-import type { AscWordApiMethod } from "@/components/onlyoffice-web-comp";
+import type { AscWordApiMethod } from "@/components/onlyoffice-embed-sdk";
 
 const unsubscribe = await manager.subscribe({
   type: "asc_onDocumentModifiedChanged" satisfies AscWordApiMethod,

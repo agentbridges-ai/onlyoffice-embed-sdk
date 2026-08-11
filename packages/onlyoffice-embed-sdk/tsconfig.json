@@ -14,12 +14,12 @@
   },
   "include": [
     "src/**/*.ts",
-    "../../src/components/onlyoffice-web-comp/**/*.ts",
+    "../../src/components/onlyoffice-embed-sdk/**/*.ts",
     "../../types/**/*.d.ts"
   ],
   "exclude": [
     "dist",
-    "../../src/components/onlyoffice-web-comp/**/*.test.ts",
-    "../../src/components/onlyoffice-web-comp/**/*.spec.ts"
+    "../../src/components/onlyoffice-embed-sdk/**/*.test.ts",
+    "../../src/components/onlyoffice-embed-sdk/**/*.spec.ts"
   ]
 }

@@ -1,5 +1,5 @@
 import { DemoButton, DemoField } from "./demo-toolbar";
-import { OnlyOfficeManager } from "@/components/onlyoffice-web-comp";
+import { OnlyOfficeManager } from "@/components/onlyoffice-embed-sdk";
 
 export const DEFAULT_DEMO_CDN_ORIGIN =
   "https://onlyoffice-embed-resource.pages.dev";

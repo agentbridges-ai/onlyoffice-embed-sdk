@@ -38,7 +38,7 @@ const INSTALL_SNIPPET = `import {
   OnlyOfficeManager,
   FILE_TYPE,
   ONLYOFFICE_ID,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 
 const manager = await OnlyOfficeManager.create({
   containerId: ONLYOFFICE_ID,

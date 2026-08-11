@@ -63,7 +63,7 @@ OnlyOffice 编辑器界面主题（`customization.uiTheme`）。
 OnlyOffice SDK 与 x2t 静态资源路径总入口。
 
 ```typescript
-import { STATIC_RESOURCE } from "@/components/onlyoffice-web-comp";
+import { STATIC_RESOURCE } from "@/components/onlyoffice-embed-sdk";
 
 STATIC_RESOURCE.onlyoffice.root     // 默认 /packages/onlyoffice/9.4.0-develop
 STATIC_RESOURCE.onlyoffice.apiUrl     // api.js 绝对 URL
@@ -211,7 +211,7 @@ import {
   // store
   setDocumentObj,
   getDocumentObj,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 ```
 
 `EditorLogger` 记录单个编辑器实例的 socket、downloadAs、x2t worker 与操作日志。通过 `manager.getLogger()` / `manager.printLogs()` 读取或打印当前实例日志。

@@ -1,7 +1,7 @@
 import type { MarkdownDoc } from "../config/site-map";
 
 const markdownModules = import.meta.glob(
-  "../../../components/onlyoffice-web-comp/docs/*.md",
+  "../../../components/onlyoffice-embed-sdk/docs/*.md",
   {
     eager: true,
     import: "default",

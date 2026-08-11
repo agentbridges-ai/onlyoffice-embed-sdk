@@ -7,28 +7,28 @@ import {
   registerCrossOriginBridge,
   subscribeCrossOriginEditorEvent,
   unregisterCrossOriginBridge,
-} from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
-import io from "@/components/onlyoffice-web-comp/internal/editor/runtime-bridge";
+} from "@/components/onlyoffice-embed-sdk/internal/editor/runtime-bridge";
+import io from "@/components/onlyoffice-embed-sdk/internal/editor/runtime-bridge";
 import {
   EditorManager,
   editorManagerFactory,
-} from "@/components/onlyoffice-web-comp/core/editor-manager";
+} from "@/components/onlyoffice-embed-sdk/core/editor-manager";
 import {
   AscSaveTypes,
   AvsFileType,
   type X2tConvertParams,
   type X2tConvertResult,
-} from "@/components/onlyoffice-web-comp/internal/editor/types";
+} from "@/components/onlyoffice-embed-sdk/internal/editor/types";
 import {
   detectEditorBinFileType,
   getX2tExportFormats,
-} from "@/components/onlyoffice-web-comp/internal/editor/utils";
+} from "@/components/onlyoffice-embed-sdk/internal/editor/utils";
 import {
   converter,
   X2tConversionError,
   X2tConverter,
-} from "@/components/onlyoffice-web-comp/internal/editor/x2t";
-import { createEditorView } from "@/components/onlyoffice-web-comp/util/x2t";
+} from "@/components/onlyoffice-embed-sdk/internal/editor/x2t";
+import { createEditorView } from "@/components/onlyoffice-embed-sdk/util/x2t";
 import {
   OfficeHostIdentityMismatchError,
   OfficeHostIsolationError,
@@ -38,9 +38,9 @@ import {
   registerOnlyOfficeStaticResource,
   resetOnlyOfficeStaticResource,
   resolveOfficeEmbedHostIdentity,
-} from "@/components/onlyoffice-web-comp/compat";
-import { OfficePluginBridge } from "@/components/onlyoffice-web-comp/compat/plugin-bridge";
-import { OfficeRuntimeResourceCompatibilityError } from "@/components/onlyoffice-web-comp/compat/runtime-resources";
+} from "@/components/onlyoffice-embed-sdk/compat";
+import { OfficePluginBridge } from "@/components/onlyoffice-embed-sdk/compat/plugin-bridge";
+import { OfficeRuntimeResourceCompatibilityError } from "@/components/onlyoffice-embed-sdk/compat/runtime-resources";
 
 type RegressionStep = {
   name: string;

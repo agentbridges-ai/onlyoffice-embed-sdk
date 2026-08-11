@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { RevisionItem } from "@/components/onlyoffice-web-comp";
+import type { RevisionItem } from "@/components/onlyoffice-embed-sdk";
 import { DemoButton, DemoMenuRow } from "./demo-toolbar";
 import type { MultiInstanceManager } from "./subframe-manager";
 

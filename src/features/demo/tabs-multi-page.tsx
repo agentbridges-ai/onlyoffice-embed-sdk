@@ -2,7 +2,7 @@
 
 /**
  * 多实例 Tab 演示：每个 Tab 运行在独立 origin 的 Subframe 中，切换 Tab 时只隐藏 iframe。
- * 文档与完整源码说明见 `onlyoffice-web-comp/docs/多实例示例.md`。
+ * 文档与完整源码说明见 `onlyoffice-embed-sdk/docs/多实例示例.md`。
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
@@ -48,7 +48,7 @@ import {
   OFFICE_THEME_OPTIONS,
   type FileType,
   type OfficeTheme,
-} from "@/components/onlyoffice-web-comp";
+} from "@/components/onlyoffice-embed-sdk";
 import { SUBFRAME_EDITOR_CONTAINER_ID as SUBFRAME_CONTAINER_ID } from "./subframe-protocol";
 
 type DocKind = "word" | "excel" | "ppt";
