@@ -14,6 +14,7 @@ const expectedSteps = [
 ];
 
 test("runtime regression contracts", async ({ page }) => {
+  test.setTimeout(90_000);
   await page.goto("/e2e/runtime-regressions", {
     waitUntil: "domcontentloaded",
   });
@@ -41,7 +42,7 @@ test("runtime regression contracts", async ({ page }) => {
     // The page executes ten heavyweight browser/runtime checks serially. CI
     // runners can need slightly more than ten seconds even when every check
     // succeeds, so keep the assertions strict while allowing scheduling slack.
-    { timeout: 30_000 },
+    { timeout: 60_000 },
   );
 
   const status = await page.getByTestId("regression-status").innerText();

@@ -24,11 +24,11 @@
 
 实际接入可以按这个路径做：
 
-1. 安装 `@agentbridges-ai/onlyoffice-embed-sdk` 并使用原生 manager API；从 `@agentbridges-ai/onlyoffice-browser` 迁移的应用使用独立 `/compat` 入口。
+1. 安装 `@agentbridges-ai/onlyoffice-embed-sdk` 并使用原生 manager API；从独立 host API 迁移的应用使用 `/compat/subframe`，由正式入口挂载到 12 个固定隔离 origin。直接 `/compat` 仅用于受控的同窗口集成。
 2. 将 [`public/packages/onlyoffice/`](public/packages/onlyoffice/) 部署在应用同源路径或 CDN，并在首次创建编辑器前调用 `registerOnlyOfficeStaticResource`。
 3. 参考 [`src/features/demo/office-preview-page.tsx`](src/features/demo/office-preview-page.tsx) 构造自己的界面：准备编辑器容器，维护一个 `OnlyOfficeManager` 实例，按需调用 `openDocument`、`downloadExport`、`toggleReadOnly`，并在页面卸载时销毁 manager。需要从父页面调用编辑器 Automation API 时，可通过 `createConnector()` 获取 Developer Edition Connector。
 
-安装、CSP、兼容差异和发布约定详见 [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md)。
+托管 compat subframe 自行提供运行时资源，父应用无需复制 `public/packages`。安装、CSP、兼容差异和发布约定详见 [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md)。
 
 静态资源读取统一在 [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts) 配置。本地与 CDN 模式默认均读取 Developer Edition Docker 导出的 9.4 SDK：`/packages/onlyoffice/9.4.0-develop`；如 CDN 目录不同，可通过 `onlyofficeVersion` 覆盖。
 
@@ -77,13 +77,28 @@ curl https://onlyoffice.agent-bridges.com/api/version
 ```json
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.1.5",
-  "release": "sdk-v0.1.5"
+  "version": "0.2.0",
+  "release": "sdk-v0.2.0",
+  "hostIdentity": {
+    "packageVersion": "0.2.0",
+    "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
+    "assetManifestDigest": "08d22b63478f418488c67356842455ea7bcf040ddecbac9c6b0c3d72db4b0dbe"
+  },
+  "runtimeManifest": {
+    "packageVersion": "0.2.0",
+    "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
+    "compatSubframeProtocol": 1,
+    "compatSubframePath": "/subframe?runtime=compat",
+    "onlyofficeVersion": "9.4.0-develop"
+  }
 }
 ```
 
 接口支持 `GET`、`HEAD` 和跨域查询，并使用 `Cache-Control: no-store`
 确保返回当前部署版本。
+`hostIdentity.assetManifestDigest` 是同一接口返回的规范
+`runtimeManifest` JSON 字节的 SHA-256，可用于锁定已部署的协议坐标；它不等同于
+对 CDN 中每个资产逐字节审计。
 
 ## OnlyOffice Embed SDK 文档
 

@@ -113,6 +113,59 @@ runtime. The following differences are intentional:
 New integrations should prefer the native root entry. The `/compat` entry is
 for controlled migration.
 
+### Isolated compatibility subframes
+
+Applications that cannot run the editor in their own window should use the
+formal cross-origin entry. It preserves the `0.3.34` mount/instance shape while
+placing every editor in one of the hosted zodiac origins:
+
+```ts
+import {
+  createOfficeEditor,
+  getOfficeSubframeOrigin,
+  HOSTED_COMPAT_SUBFRAME_IDENTITY,
+} from "@agentbridges-ai/onlyoffice-embed-sdk/compat/subframe";
+
+const editor = await createOfficeEditor(container, {
+  hostUrl: getOfficeSubframeOrigin("rat"),
+  expectedHostIdentity: HOSTED_COMPAT_SUBFRAME_IDENTITY,
+  file,
+  fileName: file.name,
+  onSave: async (output) => {
+    await persist(output);
+    return true;
+  },
+});
+```
+
+The fixed slots are `rat`, `ox`, `tiger`, `rabbit`, `dragon`, `snake`,
+`horse`, `goat`, `monkey`, `rooster`, `dog`, and `pig`. Local development uses
+`http://<slot>.onlyoffice.localhost:<port>`; production uses
+`https://<slot>.onlyoffice.agent-bridges.com`. The package creates
+`/subframe?runtime=compat` and binds every message to the exact iframe window,
+origin, instance ID, and random session token. It never transfers an
+`EditorManager`, `DocsAPI`, or `WindowProxy` across that boundary.
+
+File, Blob, ArrayBuffer, Uint8Array, URL, and empty-document inputs are
+supported. URL inputs are fetched in the parent window with `fetchOptions`
+before a copied buffer is transferred. The proxy keeps the existing
+`invokePlugin`, `save`, `confirmSaveToNewFormat`, read-only/theme controls,
+callbacks, state, identity, and destroy APIs. It additionally exposes
+`setLanguage`, `saveAs`, and `download`; the latter two are explicit SDK
+extensions, while native menu output still arrives through `onSaveAs` and
+`onDownload`.
+
+Each active editor needs a different slot origin. A slot can be reused only
+after its previous mount has been destroyed. Hosted subframes and all static
+resource responses include `Origin-Agent-Cluster: ?1`.
+
+The hosted `HOSTED_COMPAT_SUBFRAME_IDENTITY` is published by
+`https://onlyoffice.agent-bridges.com/api/version`. Its digest is the SHA-256
+of the canonical `runtimeManifest` JSON returned by that endpoint, so a
+consumer can verify the package version, host build, protocol, route, and
+ONLYOFFICE resource version as one release coordinate. This hosted digest is
+not a byte-by-byte audit of every CDN asset.
+
 ### Migrating the release identity
 
 An `onlyoffice-browser@0.3.34` release identity is deliberately incompatible
@@ -132,11 +185,11 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.1.5`, the expected identity is:
+application's release manifest. For SDK `0.2.0`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.1.5",
+  "packageVersion": "0.2.0",
   "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
@@ -193,7 +246,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.1.5`. Before the first real release, an organization owner must:
+`sdk-v0.2.0`. Before the first real release, an organization owner must:
 
 1. Publish a minimal `@agentbridges-ai/onlyoffice-embed-sdk@0.0.0` placeholder
    with `npm publish --access public --tag bootstrap`. Do not manually publish
@@ -203,7 +256,7 @@ Release tags use stable versions only: `sdk-v<package-version>`, for example
    environment.
 3. Create that GitHub environment with required reviewers, and protect `main`
    plus `sdk-v*` tag creation with repository rules.
-4. Push a GitHub-verified signed annotated `sdk-v0.1.5` tag. The workflow then
+4. Push a GitHub-verified signed annotated `sdk-v0.2.0` tag. The workflow then
    verifies and publishes the exact checked tarball with npm OIDC provenance.
 
 Prerelease versions are intentionally rejected; add an explicit dist-tag

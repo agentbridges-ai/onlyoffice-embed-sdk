@@ -24,11 +24,11 @@ Use this project when you want to embed OnlyOffice editing into your own web app
 
 The package integration path is:
 
-1. Install `@agentbridges-ai/onlyoffice-embed-sdk` and import its native manager API. Applications migrating from `@agentbridges-ai/onlyoffice-browser` use the explicit `/compat` entry.
+1. Install `@agentbridges-ai/onlyoffice-embed-sdk` and import its native manager API. Applications migrating from the independent-host API use `/compat/subframe`, which mounts the formal isolated runtime on one of the 12 fixed origins. The direct `/compat` entry is reserved for controlled same-window integrations.
 2. Host [`public/packages/onlyoffice/`](public/packages/onlyoffice/) on the application origin or a CDN, then call `registerOnlyOfficeStaticResource` before creating an editor.
 3. Build your UI by following [`src/features/demo/office-preview-page.tsx`](src/features/demo/office-preview-page.tsx): create an editor container, keep an `OnlyOfficeManager` instance, call `openDocument`, `downloadExport`, `toggleReadOnly`, and destroy the manager on unmount. To call the editor Automation API from the parent page, get a Developer Edition Connector with `createConnector()`.
 
-The package-specific installation, CSP, compatibility, and release details are in [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md).
+The hosted compatibility entry serves its own runtime resources; the parent application does not copy `public/packages`. Package-specific installation, CSP, compatibility, and release details are in [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md).
 
 Static resource resolution is centralized in [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts). Both local and CDN modes use the Developer Edition Docker-exported 9.4 SDK at `/packages/onlyoffice/9.4.0-develop` by default; `onlyofficeVersion` can override the CDN directory when needed.
 
@@ -78,13 +78,29 @@ curl https://onlyoffice.agent-bridges.com/api/version
 ```json
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.1.5",
-  "release": "sdk-v0.1.5"
+  "version": "0.2.0",
+  "release": "sdk-v0.2.0",
+  "hostIdentity": {
+    "packageVersion": "0.2.0",
+    "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
+    "assetManifestDigest": "08d22b63478f418488c67356842455ea7bcf040ddecbac9c6b0c3d72db4b0dbe"
+  },
+  "runtimeManifest": {
+    "packageVersion": "0.2.0",
+    "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
+    "compatSubframeProtocol": 1,
+    "compatSubframePath": "/subframe?runtime=compat",
+    "onlyofficeVersion": "9.4.0-develop"
+  }
 }
 ```
 
 The endpoint supports `GET`, `HEAD`, and cross-origin queries. It sends
 `Cache-Control: no-store` so consumers receive the currently deployed version.
+`hostIdentity.assetManifestDigest` is the SHA-256 of the canonical
+`runtimeManifest` JSON bytes, allowing consumers to pin the deployed protocol
+coordinates returned by the same endpoint. It is not a byte-by-byte audit of
+the CDN assets.
 
 ## OnlyOffice Embed SDK Docs
 

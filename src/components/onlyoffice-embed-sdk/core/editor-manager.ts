@@ -2013,6 +2013,18 @@ export class EditorManager {
     return data;
   }
 
+  /**
+   * Capture an exportable copy without acknowledging external persistence.
+   * Save Copy As / Download As must not clear the source document's dirty
+   * revision or emit SAVE_DOCUMENT.
+   */
+  async exportCopy() {
+    const snapshot = this.editor
+      ? await this.captureDocumentSnapshotAllowingReadOnly()
+      : this.server.getDocumentSnapshot();
+    return this.createExportData(snapshot);
+  }
+
   getUser(): User {
     return this.server.getUser();
   }
