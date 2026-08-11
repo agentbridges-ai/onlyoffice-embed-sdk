@@ -1803,24 +1803,25 @@ async function runRegressionTests(onChange: (steps: RegressionStep[]) => void) {
 }
 
 export function RuntimeRegressionsE2EPage() {
-  const [status, setStatus] = useState<"running" | "passed" | "failed">(
-    "running",
-  );
-  const [steps, setSteps] = useState<RegressionStep[]>([]);
+  const [result, setResult] = useState<{
+    status: "running" | "passed" | "failed";
+    steps: RegressionStep[];
+  }>({ status: "running", steps: [] });
 
   useEffect(() => {
     let disposed = false;
     runRegressionTests((next) => {
-      if (!disposed) setSteps(next);
+      if (!disposed) setResult({ status: "running", steps: next });
     })
-    .then((finalSteps) => {
-      if (!disposed) {
-        setSteps(finalSteps);
-        setStatus("passed");
-      }
+      .then((finalSteps) => {
+        if (!disposed) {
+          setResult({ status: "passed", steps: finalSteps });
+        }
       })
       .catch(() => {
-        if (!disposed) setStatus("failed");
+        if (!disposed) {
+          setResult((current) => ({ ...current, status: "failed" }));
+        }
       });
     return () => {
       disposed = true;
@@ -1830,9 +1831,9 @@ export function RuntimeRegressionsE2EPage() {
   return (
     <main className="p-4">
       <h1>Runtime regressions</h1>
-      <p data-testid="regression-status">{status}</p>
+      <p data-testid="regression-status">{result.status}</p>
       <pre data-testid="regression-result">
-        {JSON.stringify(steps, null, 2)}
+        {JSON.stringify(result.steps, null, 2)}
       </pre>
     </main>
   );

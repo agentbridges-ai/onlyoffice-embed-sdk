@@ -18,12 +18,26 @@ test("runtime regression contracts", async ({ page }) => {
     waitUntil: "domcontentloaded",
   });
   await page.waitForFunction(
-    () =>
-      ["passed", "failed"].includes(
+    (expectedStepCount) => {
+      const status =
         document.querySelector('[data-testid="regression-status"]')
-          ?.textContent ?? "",
-      ),
-    undefined,
+          ?.textContent ?? "";
+      const rawResult =
+        document.querySelector('[data-testid="regression-result"]')
+          ?.textContent ?? "[]";
+      let steps: unknown = [];
+      try {
+        steps = JSON.parse(rawResult);
+      } catch {
+        return false;
+      }
+      return (
+        ["passed", "failed"].includes(status) &&
+        Array.isArray(steps) &&
+        steps.length === expectedStepCount
+      );
+    },
+    expectedSteps.length,
     { timeout: 10_000 },
   );
 
