@@ -29,13 +29,15 @@ export function showOfficeXmlSizeLimitOverlay(
   payload: OfficeXmlSizeLimitExceededPayload,
 ) {
   removeOfficeXmlSizeLimitOverlay(container);
+  const ownerDocument = container.ownerDocument;
+  const ownerWindow = ownerDocument.defaultView;
 
-  const computedPosition = window.getComputedStyle(container).position;
+  const computedPosition = ownerWindow?.getComputedStyle(container).position;
   if (computedPosition === "static") {
     container.style.position = "relative";
   }
 
-  const overlay = document.createElement("div");
+  const overlay = ownerDocument.createElement("div");
   overlay.setAttribute(OVERLAY_ATTR, "true");
   overlay.setAttribute("role", "alert");
   overlay.style.position = "absolute";
@@ -50,7 +52,7 @@ export function showOfficeXmlSizeLimitOverlay(
   overlay.style.fontFamily =
     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
-  const panel = document.createElement("div");
+  const panel = ownerDocument.createElement("div");
   panel.style.width = "min(520px, 100%)";
   panel.style.border = "1px solid #d8dee8";
   panel.style.borderRadius = "8px";
@@ -58,7 +60,7 @@ export function showOfficeXmlSizeLimitOverlay(
   panel.style.boxShadow = "0 16px 42px rgba(15, 23, 42, 0.12)";
   panel.style.padding = "24px";
 
-  const title = document.createElement("div");
+  const title = ownerDocument.createElement("div");
   title.textContent =
     payload.errorDescription || OFFICE_XML_SIZE_LIMIT_ERROR_MESSAGE;
   title.style.fontSize = "18px";
@@ -66,7 +68,7 @@ export function showOfficeXmlSizeLimitOverlay(
   title.style.fontWeight = "650";
   title.style.marginBottom = "10px";
 
-  const description = document.createElement("div");
+  const description = ownerDocument.createElement("div");
   description.textContent =
     "Office 文件内 XML 解压后超过安全阈值，请压缩或拆分文档后重试。";
   description.style.fontSize = "14px";
@@ -74,7 +76,7 @@ export function showOfficeXmlSizeLimitOverlay(
   description.style.color = "#475569";
   description.style.marginBottom = "16px";
 
-  const details = document.createElement("div");
+  const details = ownerDocument.createElement("div");
   details.textContent = `XML 总大小 ${formatBytes(payload.xmlBytes)}，限制 ${formatBytes(payload.limitBytes)}，文件数 ${payload.entryCount}`;
   details.style.fontSize = "12px";
   details.style.lineHeight = "18px";

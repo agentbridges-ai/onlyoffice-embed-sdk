@@ -1,0 +1,23 @@
+{
+  "name": "Nexolyra-style E2E Office Bridge",
+  "guid": "asc.{E2E4D0B6-6F1E-4B80-9A4D-8F6B1C2D3E40}",
+  "version": "1.0.0",
+  "baseUrl": "",
+  "variations": [
+    {
+      "description": "Background bridge used by the CDN plugin regression",
+      "url": "index.html",
+      "type": "system",
+      "isSystem": true,
+      "isVisual": false,
+      "isModal": false,
+      "isInsideMode": false,
+      "isViewer": true,
+      "isDisplayedInViewer": true,
+      "EditorsSupport": ["word", "cell", "slide"],
+      "initDataType": "none",
+      "initData": "",
+      "buttons": []
+    }
+  ]
+}

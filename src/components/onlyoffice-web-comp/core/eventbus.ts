@@ -6,6 +6,8 @@ export type DocumentReadyData = {
   fileName: string;
   fileType: string;
   instanceId?: string;
+  /** Internal lifecycle owner; disambiguates equal container ids in other Documents. */
+  manager?: object;
 };
 
 export type SaveDocumentData = {

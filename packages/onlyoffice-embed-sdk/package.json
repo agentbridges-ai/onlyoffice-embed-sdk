@@ -1,0 +1,57 @@
+{
+  "name": "@agentbridges-ai/onlyoffice-embed-sdk",
+  "version": "0.1.0",
+  "description": "Browser SDK for embedding and running ONLYOFFICE editors.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/types/packages/onlyoffice-embed-sdk/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/packages/onlyoffice-embed-sdk/src/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./compat": {
+      "types": "./dist/types/packages/onlyoffice-embed-sdk/src/compat.d.ts",
+      "import": "./dist/compat.js",
+      "default": "./dist/compat.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "pnpm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentbridges-ai/onlyoffice-embed-sdk.git",
+    "directory": "packages/onlyoffice-embed-sdk"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "onlyoffice",
+    "editor",
+    "embed",
+    "wasm"
+  ],
+  "dependencies": {
+    "exceljs": "4.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vite": "^8.2.1"
+  }
+}

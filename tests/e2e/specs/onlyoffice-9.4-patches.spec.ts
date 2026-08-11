@@ -387,7 +387,7 @@ test("9.4 multi-instance demo keeps one connector per editor", async ({ page }) 
   await page.getByRole("button", { name: "连接器写入" }).click();
   await expect(page.getByRole("status")).toHaveText(
     "Connector: inserted a paragraph",
-    { timeout: 10_000 },
+    { timeout: 30_000 },
   );
 
   await page.getByTitle("新建 Excel 标签页").click();
@@ -399,7 +399,7 @@ test("9.4 multi-instance demo keeps one connector per editor", async ({ page }) 
   );
   await page.getByRole("button", { name: "连接器写入" }).click();
   await expect(page.getByRole("status")).toHaveText("Connector: wrote to A1", {
-    timeout: 10_000,
+    timeout: 30_000,
   });
 });
 

@@ -1,4 +1,4 @@
-/** Vendored Brotli decompressor (MIT, brotli.js / Google). See dec/decode.ts header. */
+/** Vendored Brotli.js (MIT) with Google-derived Apache-2.0 code. See the package THIRD_PARTY_NOTICES. */
 import { BrotliDecompressBuffer } from "./dec/decode";
 
 export function brotliDecompress(input: Uint8Array): Uint8Array {

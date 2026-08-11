@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": false,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "types": ["vite/client"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../src/components/onlyoffice-web-comp/**/*.ts",
+    "../../types/**/*.d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "../../src/components/onlyoffice-web-comp/**/*.test.ts",
+    "../../src/components/onlyoffice-web-comp/**/*.spec.ts"
+  ]
+}

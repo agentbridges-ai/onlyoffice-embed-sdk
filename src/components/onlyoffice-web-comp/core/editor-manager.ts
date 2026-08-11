@@ -23,14 +23,20 @@ import { EditorLogger } from "../internal/editor/logger";
 import {
   type DocEditor,
   DocumentType,
+  type EditorCapturedDocumentSnapshot,
+  type EditorDownloadOutput,
   isOfficeXmlSizeLimitExceededError,
   type OfficeXmlSizeLimitExceededPayload,
   type OfficeTheme,
   type OnlyOfficeConnector,
   type OnlyOfficeConnectorOptions,
+  type OnlyOfficePluginOptions,
   type User,
 } from "../internal/editor/types";
-import { getDocumentType, isOnlyOfficeCdnMode } from "../const";
+import {
+  getDocumentType,
+  isOnlyOfficeCdnMode,
+} from "../const";
 import type { AscWordApiCallback, AscWordApiMethod } from "../type/word-api";
 import { type OnlyOfficeIframeWindow } from "../type/sdk-internal";
 import {
@@ -81,9 +87,17 @@ export type CreateEditorViewOptions = {
   user?: User;
   lang?: string;
   containerId?: string;
+  /** Explicit host element; keeps editor DOM and DocsAPI bound to its Document. */
+  container?: HTMLElement;
   editorManager?: EditorManager;
   editing?: boolean;
   theme?: OfficeTheme;
+  /** Plugin descriptors forwarded to editorConfig.plugins. */
+  plugins?: OnlyOfficePluginOptions;
+  /** Native Save Copy As / Download As output interceptor. */
+  onDownloadOutput?: (
+    output: EditorDownloadOutput,
+  ) => boolean | Promise<boolean>;
   /** 由 EditorManagerFactory.beginLoadSession 生成，用于丢弃过期的异步初始化 */
   loadSession?: number;
   /** 修订审阅页：开启 markup 显示与页边修订气泡 */
@@ -170,12 +184,23 @@ export class EditorManager {
   private connector: OnlyOfficeConnector | null = null;
   private server: EditorServer;
   private dirty = false;
+  /**
+   * Monotonic edit revision used to keep an older async snapshot from marking
+   * edits that arrived while it was in flight as persisted.
+   */
+  private dirtyRevision = 0;
   private readOnly = false;
   private editorLang: OnlyOfficeLang = getOnlyOfficeLang();
   private uiTheme: OfficeTheme = "theme-white";
+  private plugins?: OnlyOfficePluginOptions;
+  private pluginConfigUrls: string[] = [];
+  private downloadOutputHandler?: CreateEditorViewOptions["onDownloadOutput"];
   /** 与容器一一对应，供事件与 Connector 使用同一稳定路由键。 */
   private instanceId: string;
   private containerId: string;
+  private containerElement: HTMLElement | null;
+  private ownerDocument: Document | null;
+  private ownerWindow: Window | null;
   private logger: EditorLogger;
   private fileName = "New Document.docx";
   private fileType = "docx";
@@ -207,17 +232,37 @@ export class EditorManager {
     timer: number;
   } | null = null;
 
-  constructor(containerId = ONLYOFFICE_ID) {
-    this.containerId = containerId;
-    this.instanceId = containerId;
-    this.logger = new EditorLogger(containerId);
+  constructor(
+    container: string | HTMLElement = ONLYOFFICE_ID,
+    ownerDocument?: Document,
+  ) {
+    const containerElement = typeof container === "string" ? null : container;
+    const containerId =
+      typeof container === "string" ? container : container.id;
+    const resolvedDocument =
+      containerElement?.ownerDocument ??
+      ownerDocument ??
+      (typeof document === "undefined" ? null : document);
+
+    this.containerId = containerId || ONLYOFFICE_ID;
+    this.instanceId = this.containerId;
+    this.containerElement = containerElement;
+    this.ownerDocument = resolvedDocument;
+    this.ownerWindow =
+      resolvedDocument?.defaultView ??
+      (typeof window === "undefined" ? null : window);
+    this.logger = new EditorLogger(this.containerId);
     this.server = new EditorServer({
-      getState: () => ({ readOnly: this.readOnly }),
+      getState: () => ({
+        readOnly: this.readOnly,
+        dirtyRevision: this.dirtyRevision,
+      }),
       logger: this.logger,
       onUserSave: (snapshot) => {
-        this.dirty = false;
         this.notifyUserSave(snapshot);
       },
+      onDownloadOutput: (output) =>
+        this.downloadOutputHandler?.(output) ?? false,
       onLoadError: (error) => {
         this.handleServerLoadError(error);
       },
@@ -227,8 +272,82 @@ export class EditorManager {
     });
   }
 
+  private bindContainer(container: HTMLElement) {
+    this.containerElement = container;
+    this.ownerDocument = container.ownerDocument;
+    this.ownerWindow =
+      container.ownerDocument.defaultView ??
+      (typeof window === "undefined" ? null : window);
+    if (container.id) {
+      this.containerId = container.id;
+      this.instanceId = container.id;
+    }
+  }
+
+  private getOwnerDocument() {
+    const ownerDocument =
+      this.containerElement?.ownerDocument ??
+      this.ownerDocument ??
+      (typeof document === "undefined" ? null : document);
+    if (!ownerDocument) {
+      throw new Error("OnlyOffice editor requires a browser Document");
+    }
+    this.ownerDocument = ownerDocument;
+    return ownerDocument;
+  }
+
+  private getOwnerWindow() {
+    const ownerWindow =
+      this.containerElement?.ownerDocument.defaultView ??
+      this.ownerWindow ??
+      this.getOwnerDocument().defaultView ??
+      (typeof window === "undefined" ? null : window);
+    if (!ownerWindow) {
+      throw new Error("OnlyOffice editor requires a browser Window");
+    }
+    this.ownerWindow = ownerWindow;
+    return ownerWindow;
+  }
+
+  private isCdnMode() {
+    return isOnlyOfficeCdnMode(this.getOwnerWindow());
+  }
+
+  private buildPluginConfigUrls(): string[] {
+    if (!this.plugins?.configUrls.length) return [];
+
+    const ownerWindow = this.getOwnerWindow();
+    const requireConfigJson = this.isCdnMode();
+    return this.plugins.configUrls.map((configUrl) => {
+      const sourceUrl = new URL(configUrl, ownerWindow.location.href);
+      if (
+        (sourceUrl.protocol !== "http:" && sourceUrl.protocol !== "https:") ||
+        sourceUrl.username ||
+        sourceUrl.password
+      ) {
+        throw new Error(`Invalid OnlyOffice plugin config URL: ${configUrl}`);
+      }
+      if (
+        requireConfigJson &&
+        !sourceUrl.pathname.endsWith("/config.json")
+      ) {
+        throw new Error(
+          `OnlyOffice CDN plugin config URL must end with config.json: ${configUrl}`,
+        );
+      }
+      sourceUrl.hash = "";
+      return sourceUrl.href;
+    });
+  }
+
   private getContainerElement() {
-    return document.getElementById(this.containerId);
+    if (
+      this.containerElement &&
+      this.containerElement.ownerDocument === this.getOwnerDocument()
+    ) {
+      return this.containerElement;
+    }
+    return this.getOwnerDocument().getElementById(this.containerId);
   }
 
   private getOfficeOverlayHostElement() {
@@ -293,7 +412,11 @@ export class EditorManager {
 
   private createScopedIo() {
     return (url?: string, options: MockSocketOptions = {}) => {
-      const socket = io(url, { ...options, logger: this.logger });
+      const socket = io(url, {
+        ...options,
+        logger: this.logger,
+        ownerWindow: this.getOwnerWindow(),
+      });
 
       socket.on("connect", () => {
         this.server.handleConnect({ socket });
@@ -311,6 +434,7 @@ export class EditorManager {
       const socket = io(undefined, {
         deferConnect: true,
         logger: this.logger,
+        ownerWindow: this.getOwnerWindow(),
       });
       socket.connected = true;
       socket.disconnected = false;
@@ -328,8 +452,9 @@ export class EditorManager {
     this.scopedIoTeardown = registerScopedIo(
       this.containerId,
       this.createScopedIo(),
+      this.getOwnerWindow(),
     );
-    if (!isOnlyOfficeCdnMode()) {
+    if (!this.isCdnMode()) {
       return;
     }
 
@@ -338,6 +463,8 @@ export class EditorManager {
       () => this.getEditorFrameElement(),
       this.server,
       this.createCrossOriginServerIo(),
+      this.getOwnerWindow(),
+      this.pluginConfigUrls,
     );
   }
 
@@ -353,12 +480,18 @@ export class EditorManager {
       return false;
     }
 
-    if (setCrossOriginReadOnly(this.containerId, readOnly)) {
+    if (
+      setCrossOriginReadOnly(
+        this.containerId,
+        readOnly,
+        this.getOwnerWindow(),
+      )
+    ) {
       return true;
     }
 
     if (retries > 0) {
-      window.setTimeout(() => {
+      this.getOwnerWindow().setTimeout(() => {
         this.syncCrossOriginReadOnly(readOnly, retries - 1, syncGeneration);
       }, 50);
     }
@@ -367,7 +500,9 @@ export class EditorManager {
   }
 
   private getEditorFrameElement() {
-    const containerFrame = document
+    const ownerDocument = this.getOwnerDocument();
+    const ownerWindow = this.getOwnerWindow();
+    const containerFrame = ownerDocument
       .getElementById(this.containerId)
       ?.querySelector<HTMLIFrameElement>('iframe[name="frameEditor"]');
 
@@ -376,13 +511,13 @@ export class EditorManager {
     }
 
     const frames = Array.from(
-      document.querySelectorAll<HTMLIFrameElement>(
+      ownerDocument.querySelectorAll<HTMLIFrameElement>(
         'iframe[name="frameEditor"]',
       ),
     );
     const matchedFrame = frames.find((frame) => {
       try {
-        const url = new URL(frame.src, window.location.origin);
+        const url = new URL(frame.src, ownerWindow.location.origin);
         return url.searchParams.get("frameEditorId") === this.containerId;
       } catch {
         return false;
@@ -397,11 +532,27 @@ export class EditorManager {
       return frames[0];
     }
 
-    return document
+    return ownerDocument
       .querySelector<HTMLElement>(
         `${ONLYOFFICE_CONTAINER_CONFIG.PARENT_SELECTOR}[data-onlyoffice-container-id="${this.containerId}"]`,
       )
       ?.querySelector<HTMLIFrameElement>('iframe[name="frameEditor"]');
+  }
+
+  /**
+   * Verifies that a plugin message came from a direct child of this
+   * manager's live frameEditor. DocsAPI may replace or wrap the original
+   * container element, so ownership must be resolved through the manager's
+   * current iframe lookup instead of a stale consumer container reference.
+   */
+  ownsPluginSource(source: WindowProxy) {
+    const editorFrame = this.getEditorFrameElement();
+    if (!editorFrame?.contentWindow) return false;
+    try {
+      return source.parent === editorFrame.contentWindow;
+    } catch {
+      return false;
+    }
   }
 
   private installProxiesOnWindow(win: OnlyOfficeProxyWindow) {
@@ -481,7 +632,7 @@ export class EditorManager {
       // OnlyOffice resolves comments through an internal change event first.
       // Removing synchronously during that event can race its own render pass,
       // so schedule the delete for the next tick after the resolved state lands.
-      window.setTimeout(() => {
+      this.getOwnerWindow().setTimeout(() => {
         api.asc_removeComment?.(String(id));
         this.comments.delete(String(id));
       }, 0);
@@ -553,6 +704,7 @@ export class EditorManager {
           change: false,
         },
       },
+      plugins: Boolean(this.plugins?.configUrls.length),
       logo: {
         image: OFFICE_EDITOR_LOGO.image,
         imageDark: OFFICE_EDITOR_LOGO.imageDark,
@@ -585,7 +737,7 @@ export class EditorManager {
   /** 文档若自带 w:trackRevisions，OnlyOffice 默认会跟进入修订模式；接入层强制关闭录制。 */
   private applyDefaultReviewSettings() {
     this.trackRevisions = false;
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       void this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_SET_TRACK,
         {
@@ -631,7 +783,7 @@ export class EditorManager {
   }
 
   private refreshCommentsFromSdk() {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       void this.refreshCrossOriginComments().catch(() => {});
       return;
     }
@@ -687,7 +839,7 @@ export class EditorManager {
   }
 
   private refreshRevisionsFromSdk(options?: { forceRefreshStack?: boolean }) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       void this.refreshCrossOriginRevisions(options).catch(() => {});
       return;
     }
@@ -714,7 +866,7 @@ export class EditorManager {
   }
 
   private applyRevisionsFromSdkStack(stack: unknown) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       this.revisions = this.normalizeCrossOriginRevisions(stack);
       return;
     }
@@ -735,7 +887,7 @@ export class EditorManager {
   }
 
   private applyAllRevisionChanges(mode: "accept" | "reject") {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       void this.callCrossOriginRevision(
         mode === "accept"
           ? CROSS_ORIGIN_EDITOR_COMMAND.REVISION_ACCEPT_ALL
@@ -848,7 +1000,13 @@ export class EditorManager {
     command: string,
     payload: Record<string, unknown> = {},
   ) {
-    return callCrossOriginEditor(this.containerId, command, payload);
+    return callCrossOriginEditor(
+      this.containerId,
+      command,
+      payload,
+      5000,
+      this.getOwnerWindow(),
+    );
   }
 
   private revisionTargetId(revision: RevisionItem | string) {
@@ -857,7 +1015,7 @@ export class EditorManager {
 
   addDemoRevision(text = `审批修订 ${new Date().toLocaleTimeString()}`) {
     this.trackRevisions = true;
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_ADD_DEMO,
         { text },
@@ -890,7 +1048,7 @@ export class EditorManager {
   }
 
   private scheduleWordContentSync() {
-    window.setTimeout(() => {
+    this.getOwnerWindow().setTimeout(() => {
       this.refreshCommentsFromSdk();
       this.refreshRevisionsFromSdk();
     }, 0);
@@ -906,7 +1064,7 @@ export class EditorManager {
     }
 
     this.wordContentSyncPromise = (async () => {
-      if (isOnlyOfficeCdnMode()) {
+      if (this.isCdnMode()) {
         await Promise.all([
           this.refreshCrossOriginComments(),
           this.refreshCrossOriginRevisions(),
@@ -933,6 +1091,7 @@ export class EditorManager {
 
               this.comments.set(commentId, commentData);
             },
+            this.getOwnerWindow(),
           ),
           subscribeCrossOriginEditorEvent(
             this.containerId,
@@ -947,6 +1106,7 @@ export class EditorManager {
 
               this.comments.set(commentId, commentData);
             },
+            this.getOwnerWindow(),
           ),
           subscribeCrossOriginEditorEvent(
             this.containerId,
@@ -954,6 +1114,7 @@ export class EditorManager {
             ([id]) => {
               this.comments.delete(String(id));
             },
+            this.getOwnerWindow(),
           ),
           subscribeCrossOriginEditorEvent(
             this.containerId,
@@ -961,6 +1122,7 @@ export class EditorManager {
             ([items]) => {
               this.revisions = this.normalizeCrossOriginRevisions(items);
             },
+            this.getOwnerWindow(),
           ),
         ];
 
@@ -1089,7 +1251,7 @@ export class EditorManager {
 
   private scheduleWordDocModeHide() {
     this.hideWordDocModeSwitcher();
-    window.setTimeout(() => this.hideWordDocModeSwitcher(), 0);
+    this.getOwnerWindow().setTimeout(() => this.hideWordDocModeSwitcher(), 0);
   }
 
   /** 同步 web-apps 工具栏/侧栏的 editing:disable（viewMode 与只读一致）。 */
@@ -1290,7 +1452,7 @@ export class EditorManager {
   }
 
   /** downloadAs → /downloadas/ → 更新 fsMap 中的 Editor.bin。 */
-  private async captureDocumentSnapshot() {
+  private async captureDocumentSnapshot(): Promise<EditorCapturedDocumentSnapshot> {
     if (!this.editor) {
       return this.server.getDocumentSnapshot();
     }
@@ -1328,8 +1490,51 @@ export class EditorManager {
     if (!this.editor || this.readOnly || !this.dirty) {
       return;
     }
+    await this.captureStableDocumentSnapshot();
+  }
 
-    await this.captureDocumentSnapshot();
+  private async captureStableDocumentSnapshot() {
+    const capturedEditor = this.editor;
+    if (!capturedEditor || this.destroyed) {
+      throw new DOMException(
+        "OnlyOffice editor changed while capturing a document snapshot",
+        "AbortError",
+      );
+    }
+    const snapshot = await this.captureDocumentSnapshot();
+    if (this.destroyed || this.editor !== capturedEditor) {
+      throw new DOMException(
+        "OnlyOffice editor changed while capturing a document snapshot",
+        "AbortError",
+      );
+    }
+    if (
+      snapshot.capturedDirtyRevision === undefined ||
+      !this.clearDirtyAtRevision(snapshot.capturedDirtyRevision)
+    ) {
+      throw new Error(
+        "OnlyOffice document changed after its snapshot was captured",
+      );
+    }
+    return snapshot;
+  }
+
+  private markDirty() {
+    this.dirtyRevision += 1;
+    this.dirty = true;
+  }
+
+  private clearDirtyAtRevision(revision: number) {
+    if (this.dirtyRevision !== revision) {
+      return false;
+    }
+    this.dirty = false;
+    return true;
+  }
+
+  private resetDirtyState() {
+    // Invalidate any snapshot started by the previous mounted document.
+    this.dirtyRevision += 1;
     this.dirty = false;
   }
 
@@ -1384,7 +1589,7 @@ export class EditorManager {
     // DocsAPI 将 guid 仅作为 connector 回调的路由键。一个 EditorManager
     // 只维护一个 connector，因此用 containerId 可稳定地与编辑器一一对应。
     connector.guid = this.containerId;
-    const iframeUrl = new URL(iframe.src, window.location.href);
+    const iframeUrl = new URL(iframe.src, this.getOwnerWindow().location.href);
     const frameEditorId =
       iframeUrl.searchParams.get("frameEditorId") ?? "iframeEditor";
     connector.sendMessage = (data) => {
@@ -1419,7 +1624,7 @@ export class EditorManager {
    * CDN 跨域模式通过 iframe 内 bridge 执行同样的 SDK/UI 同步，避免跨域访问 window.Asc。
    */
   private applyInitialReadOnlyState(documentType: DocumentType) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       this.syncCrossOriginReadOnly(this.readOnly);
       return;
     }
@@ -1429,7 +1634,7 @@ export class EditorManager {
 
     if (documentType === DocumentType.Slide) {
       // 工具栏 delayed render 后再锁一次，确保「新增幻灯片」按钮被 DisableToolbar 处理。
-      window.setTimeout(() => {
+      this.getOwnerWindow().setTimeout(() => {
         if (this.readOnly) {
           this.syncShellEditingDisable(true, documentType);
         }
@@ -1446,12 +1651,13 @@ export class EditorManager {
     const doc = this.server.getDocument();
     const user = this.server.getUser();
     const documentType = getDocumentType(doc.fileType);
+    const ownerWindow = this.getOwnerWindow();
 
     this.server.setClient({
-      buildVersion: window.DocsAPI!.DocEditor.version(),
+      buildVersion: ownerWindow.DocsAPI!.DocEditor.version(),
     });
 
-    this.editor = new window.DocsAPI!.DocEditor(this.containerId, {
+    this.editor = new ownerWindow.DocsAPI!.DocEditor(this.containerId, {
       document: {
         fileType: doc.fileType,
         key: doc.key,
@@ -1470,6 +1676,12 @@ export class EditorManager {
           ...user,
         },
         customization: this.buildEditorCustomization(),
+        plugins: this.plugins?.configUrls.length
+          ? {
+              pluginsData: this.pluginConfigUrls,
+              autostart: this.plugins.autostart,
+            }
+          : undefined,
       },
       events: {
         onAppReady: () => {
@@ -1486,6 +1698,7 @@ export class EditorManager {
             fileName: doc.title,
             fileType: doc.fileType,
             instanceId: this.instanceId,
+            manager: this,
           });
 
           if (this.readOnly) {
@@ -1496,7 +1709,7 @@ export class EditorManager {
         },
         onDocumentStateChange: (event: { data: boolean }) => {
           if (event.data) {
-            this.dirty = true;
+            this.markDirty();
           }
         },
         // DocsAPI 仅在注册此回调时暴露「文件 → 重命名」入口。
@@ -1554,7 +1767,7 @@ export class EditorManager {
 
     const documentType = getDocumentType(this.fileType);
 
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       this.syncCrossOriginReadOnly(!editing);
       return;
     }
@@ -1614,7 +1827,13 @@ export class EditorManager {
     EditorServer["getDocumentSnapshot"]
   > | null = null;
 
-  /** 用户保存：更新快照并广播 SAVE_DOCUMENT + ONSAVE（同 tick 内合并重复回调）。 */
+  /**
+   * 用户保存：更新快照并广播 SAVE_DOCUMENT + ONSAVE（同 tick 内合并重复回调）。
+   *
+   * This callback arrives after the editor has already produced its bytes, so
+   * it cannot prove that a newer dirty revision is part of that snapshot. Keep
+   * dirty latched; only a revision-bound capture may clear it safely.
+   */
   private notifyUserSave(
     snapshot?: ReturnType<EditorServer["getDocumentSnapshot"]>,
   ) {
@@ -1623,12 +1842,11 @@ export class EditorManager {
     }
 
     if (this.userSaveTimer !== null) {
-      window.clearTimeout(this.userSaveTimer);
+      this.getOwnerWindow().clearTimeout(this.userSaveTimer);
     }
 
-    this.userSaveTimer = window.setTimeout(() => {
+    this.userSaveTimer = this.getOwnerWindow().setTimeout(() => {
       this.userSaveTimer = null;
-      this.dirty = false;
 
       const snap =
         this.pendingUserSaveSnapshot ?? this.server.getDocumentSnapshot();
@@ -1646,7 +1864,11 @@ export class EditorManager {
   private isLoadSessionActive(containerId: string, loadSession?: number) {
     return (
       loadSession === undefined ||
-      editorManagerFactory.isLoadSessionActive(containerId, loadSession)
+      editorManagerFactory.isLoadSessionActive(
+        containerId,
+        loadSession,
+        this.getOwnerDocument(),
+      )
     );
   }
 
@@ -1693,8 +1915,13 @@ export class EditorManager {
     }
 
     this.teardown();
+    if (options.container) {
+      this.bindContainer(options.container);
+      containerId = options.container.id || containerId;
+    }
     this.readOnly = !!options.readOnly;
     this.revisionReviewMode = !!options.revisionReview;
+    this.downloadOutputHandler = options.onDownloadOutput;
     this.server.setOfficeXmlEventConfig(options.officeXmlEvent);
     if (options.user) {
       this.server.setUser(options.user);
@@ -1737,7 +1964,7 @@ export class EditorManager {
       return this;
     }
 
-    await initializeOnlyOffice();
+    await initializeOnlyOffice(this.getOwnerWindow());
 
     if (!isActive()) {
       if (!this.destroyed) this.teardown();
@@ -1747,6 +1974,15 @@ export class EditorManager {
     this.editorLang =
       (options.lang as OnlyOfficeLang | undefined) || getOnlyOfficeLang();
     this.uiTheme = options.theme || "theme-white";
+    this.plugins = options.plugins
+      ? {
+          configUrls: [...options.plugins.configUrls],
+          autostart: options.plugins.autostart
+            ? [...options.plugins.autostart]
+            : undefined,
+        }
+      : undefined;
+    this.pluginConfigUrls = this.buildPluginConfigUrls();
 
     this.syncEditorBridge();
     this.mountDocEditor();
@@ -1764,7 +2000,9 @@ export class EditorManager {
     let snapshot;
     if (this.editor && (!this.readOnly || this.dirty)) {
       snapshot = await this.captureDocumentSnapshotAllowingReadOnly();
-      this.dirty = false;
+      if (snapshot.capturedDirtyRevision !== undefined) {
+        this.clearDirtyAtRevision(snapshot.capturedDirtyRevision);
+      }
     } else {
       snapshot = this.server.getDocumentSnapshot();
     }
@@ -1796,12 +2034,11 @@ export class EditorManager {
 
     try {
       if (readOnly && this.editor) {
-        await this.captureDocumentSnapshot();
-        this.dirty = false;
+        await this.captureStableDocumentSnapshot();
       }
 
       this.readOnly = readOnly;
-      if (isOnlyOfficeCdnMode()) {
+      if (this.isCdnMode()) {
         this.syncCrossOriginReadOnly(readOnly);
         return;
       }
@@ -1915,7 +2152,7 @@ export class EditorManager {
     }
 
     return new Promise<string>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
+      const timer = this.getOwnerWindow().setTimeout(() => {
         if (this.pendingRename?.timer !== timer) {
           return;
         }
@@ -1926,11 +2163,13 @@ export class EditorManager {
       this.pendingRename = { resolve, reject, timer };
 
       try {
-        if (isOnlyOfficeCdnMode()) {
+        if (this.isCdnMode()) {
           void callCrossOriginEditor(
             this.containerId,
             CROSS_ORIGIN_EDITOR_COMMAND.DOCUMENT_RENAME,
             { fileName: requestedName },
+            5000,
+            this.getOwnerWindow(),
           )
             .then(() => {
               // 跨域 bridge 只能确认 iframe 已调用 SDK API；原生「文件 → 重命名」
@@ -1969,7 +2208,7 @@ export class EditorManager {
 
     const pendingRename = this.pendingRename;
     if (pendingRename) {
-      window.clearTimeout(pendingRename.timer);
+      this.getOwnerWindow().clearTimeout(pendingRename.timer);
       this.pendingRename = null;
       pendingRename.resolve(renamedFileName);
     }
@@ -1987,7 +2226,7 @@ export class EditorManager {
       return;
     }
 
-    window.clearTimeout(pendingRename.timer);
+    this.getOwnerWindow().clearTimeout(pendingRename.timer);
     this.pendingRename = null;
     pendingRename.reject(
       error instanceof Error ? error : new Error(String(error)),
@@ -2021,7 +2260,7 @@ export class EditorManager {
     type: AscWordApiMethod;
     fn: AscWordApiCallback;
   }) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       if (
         type === CROSS_ORIGIN_EDITOR_EVENT.ADD_COMMENT ||
         type === CROSS_ORIGIN_EDITOR_EVENT.CHANGE_COMMENT ||
@@ -2031,8 +2270,11 @@ export class EditorManager {
           CROSS_ORIGIN_EDITOR_COMMAND.COMMENT_SUBSCRIBE,
           {},
         );
-        return subscribeCrossOriginEditorEvent(this.containerId, type, (args) =>
-          fn(...args),
+        return subscribeCrossOriginEditorEvent(
+          this.containerId,
+          type,
+          (args) => fn(...args),
+          this.getOwnerWindow(),
         );
       }
 
@@ -2043,8 +2285,11 @@ export class EditorManager {
         await this.callCrossOriginRevision(
           CROSS_ORIGIN_EDITOR_COMMAND.REVISION_SUBSCRIBE,
         );
-        return subscribeCrossOriginEditorEvent(this.containerId, type, (args) =>
-          fn(...args),
+        return subscribeCrossOriginEditorEvent(
+          this.containerId,
+          type,
+          (args) => fn(...args),
+          this.getOwnerWindow(),
         );
       }
 
@@ -2053,9 +2298,14 @@ export class EditorManager {
           this.containerId,
           CROSS_ORIGIN_EDITOR_COMMAND.EDITOR_SUBSCRIBE,
           { event: type },
+          5000,
+          this.getOwnerWindow(),
         );
-        return subscribeCrossOriginEditorEvent(this.containerId, type, (args) =>
-          fn(...args),
+        return subscribeCrossOriginEditorEvent(
+          this.containerId,
+          type,
+          (args) => fn(...args),
+          this.getOwnerWindow(),
         );
       }
 
@@ -2078,7 +2328,7 @@ export class EditorManager {
   }
 
   async getAllComments(): Promise<CommentItem[]> {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.refreshCrossOriginComments();
     }
 
@@ -2141,11 +2391,17 @@ export class EditorManager {
     command: string,
     payload: Record<string, unknown>,
   ) {
-    return callCrossOriginEditor(this.containerId, command, payload);
+    return callCrossOriginEditor(
+      this.containerId,
+      command,
+      payload,
+      5000,
+      this.getOwnerWindow(),
+    );
   }
 
   addComment(input: CommentInput) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const data = toPluginCommentPayload(normalizeCommentInput(input));
       return this.callCrossOriginComment(
         CROSS_ORIGIN_EDITOR_COMMAND.COMMENT_ADD,
@@ -2174,7 +2430,7 @@ export class EditorManager {
       return this.removeComment(id);
     }
 
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const payload = toPluginCommentPayload(data);
       return this.callCrossOriginComment(
         CROSS_ORIGIN_EDITOR_COMMAND.COMMENT_UPDATE,
@@ -2202,7 +2458,7 @@ export class EditorManager {
   }
 
   removeComment(id: string) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginComment(
         CROSS_ORIGIN_EDITOR_COMMAND.COMMENT_REMOVE,
         { id },
@@ -2219,7 +2475,7 @@ export class EditorManager {
     id: string,
     { showBalloon = false }: { showBalloon?: boolean } = {},
   ) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginComment(
         CROSS_ORIGIN_EDITOR_COMMAND.COMMENT_GO_TO,
         { id, showBalloon },
@@ -2234,7 +2490,7 @@ export class EditorManager {
   }
 
   async registerCommentCallbacks(handlers: CommentChangeHandlers) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const unsubscribers: Array<() => void> = [];
       await this.callCrossOriginComment(
         CROSS_ORIGIN_EDITOR_COMMAND.COMMENT_SUBSCRIBE,
@@ -2252,6 +2508,7 @@ export class EditorManager {
               this.comments.set(commentId, commentData);
               handlers.onAdd?.(commentId, commentData);
             },
+            this.getOwnerWindow(),
           ),
         );
       }
@@ -2273,6 +2530,7 @@ export class EditorManager {
               this.comments.set(commentId, commentData);
               handlers.onChange?.(commentId, commentData);
             },
+            this.getOwnerWindow(),
           ),
         );
       }
@@ -2287,6 +2545,7 @@ export class EditorManager {
               this.comments.delete(commentId);
               handlers.onRemove?.(commentId);
             },
+            this.getOwnerWindow(),
           ),
         );
       }
@@ -2315,7 +2574,7 @@ export class EditorManager {
               const commentId = String(id);
               const commentData = data as CommentData;
               if (isResolvedComment(commentData)) {
-                window.setTimeout(() => {
+                this.getOwnerWindow().setTimeout(() => {
                   this.removeComment(commentId);
                   handlers.onRemove?.(commentId);
                 }, 0);
@@ -2346,7 +2605,7 @@ export class EditorManager {
 
   setTrackRevisions(enabled: boolean) {
     this.trackRevisions = enabled;
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_SET_TRACK,
         { enabled },
@@ -2361,7 +2620,7 @@ export class EditorManager {
   /** 修订审阅页初始化：开启追踪 + markup 显示模式（不会批量接受/拒绝） */
   prepareRevisionReview() {
     this.trackRevisions = true;
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_PREPARE_REVIEW,
       ).then((items) => {
@@ -2375,7 +2634,7 @@ export class EditorManager {
   }
 
   isTrackRevisions() {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       void this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_IS_TRACK,
       ).then((enabled) => {
@@ -2388,7 +2647,7 @@ export class EditorManager {
   }
 
   haveRevisionsChanges() {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       void this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_HAVE_CHANGES,
       ).then((hasChanges) => {
@@ -2415,7 +2674,7 @@ export class EditorManager {
   }
 
   async getAllRevisions(): Promise<RevisionItem[]> {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.refreshCrossOriginRevisions({ forceRefreshStack: true });
     }
 
@@ -2428,7 +2687,7 @@ export class EditorManager {
   }
 
   goToNextRevision() {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_NEXT,
       );
@@ -2440,7 +2699,7 @@ export class EditorManager {
   }
 
   goToPrevRevision() {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_PREV,
       );
@@ -2452,7 +2711,7 @@ export class EditorManager {
   }
 
   goToRevision(id: string) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const cached = this.revisions.find((entry) => entry.Id === id);
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_GO_TO,
@@ -2482,7 +2741,7 @@ export class EditorManager {
   }
 
   acceptRevision(revision: RevisionItem | string) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const id = this.revisionTargetId(revision);
       const cached = this.revisions.find((entry) => entry.Id === id);
       return this.callCrossOriginRevision(
@@ -2516,7 +2775,7 @@ export class EditorManager {
   }
 
   rejectRevision(revision: RevisionItem | string) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const id = this.revisionTargetId(revision);
       const cached = this.revisions.find((entry) => entry.Id === id);
       return this.callCrossOriginRevision(
@@ -2558,7 +2817,7 @@ export class EditorManager {
   }
 
   acceptRevisionsBySelection(all?: boolean) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_ACCEPT_SELECTION,
         { all },
@@ -2571,7 +2830,7 @@ export class EditorManager {
   }
 
   rejectRevisionsBySelection(all?: boolean) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       return this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_REJECT_SELECTION,
         { all },
@@ -2584,7 +2843,7 @@ export class EditorManager {
   }
 
   async registerRevisionCallbacks(handlers: RevisionChangeHandlers) {
-    if (isOnlyOfficeCdnMode()) {
+    if (this.isCdnMode()) {
       const unsubscribers: Array<() => void> = [];
       await this.callCrossOriginRevision(
         CROSS_ORIGIN_EDITOR_COMMAND.REVISION_SUBSCRIBE,
@@ -2599,6 +2858,7 @@ export class EditorManager {
               this.revisions = this.normalizeCrossOriginRevisions(items);
               handlers.onShowChanges?.(this.revisions);
             },
+            this.getOwnerWindow(),
           ),
         );
       }
@@ -2612,6 +2872,7 @@ export class EditorManager {
               this.trackRevisions = !!enabled;
               handlers.onTrackRevisionsChange?.(!!enabled);
             },
+            this.getOwnerWindow(),
           ),
         );
       }
@@ -2656,7 +2917,7 @@ export class EditorManager {
     this.crossOriginReadOnlySyncGeneration += 1;
     this.rejectPendingRename(new Error("OnlyOffice editor was destroyed"));
     if (this.userSaveTimer !== null) {
-      window.clearTimeout(this.userSaveTimer);
+      this.getOwnerWindow().clearTimeout(this.userSaveTimer);
       this.userSaveTimer = null;
     }
     this.pendingUserSaveSnapshot = null;
@@ -2669,7 +2930,8 @@ export class EditorManager {
     this.disconnectConnector();
     this.editor?.destroyEditor?.();
     this.editor = null;
-    this.dirty = false;
+    this.downloadOutputHandler = undefined;
+    this.resetDirtyState();
     this.comments.clear();
     this.revisions = [];
     this.server.reset();
@@ -2684,53 +2946,134 @@ export class EditorManager {
 
 class EditorManagerFactory {
   private defaultManager = new EditorManager();
-  private managers = new Map<string, EditorManager>();
-  private loadSessions = new Map<string, number>();
+  private managersByDocument = new WeakMap<
+    Document,
+    Map<string, EditorManager>
+  >();
+  private orphanManagers = new Map<string, EditorManager>();
+  private managers = new Set<EditorManager>();
+  private loadSessionsByDocument = new WeakMap<Document, Map<string, number>>();
+  private orphanLoadSessions = new Map<string, number>();
 
-  beginLoadSession(containerId: string) {
-    const next = (this.loadSessions.get(containerId) ?? 0) + 1;
-    this.loadSessions.set(containerId, next);
+  private resolveDocument(
+    context?: HTMLElement | Document | Window,
+  ): Document | null {
+    if (!context) {
+      return typeof document === "undefined" ? null : document;
+    }
+    if ("document" in context) {
+      return context.document;
+    }
+    if (context.nodeType === 9) {
+      return context as Document;
+    }
+    return context.ownerDocument;
+  }
+
+  private getManagerMap(ownerDocument: Document | null) {
+    if (!ownerDocument) return this.orphanManagers;
+    let managers = this.managersByDocument.get(ownerDocument);
+    if (!managers) {
+      managers = new Map();
+      this.managersByDocument.set(ownerDocument, managers);
+    }
+    return managers;
+  }
+
+  private getLoadSessionMap(ownerDocument: Document | null) {
+    if (!ownerDocument) return this.orphanLoadSessions;
+    let sessions = this.loadSessionsByDocument.get(ownerDocument);
+    if (!sessions) {
+      sessions = new Map();
+      this.loadSessionsByDocument.set(ownerDocument, sessions);
+    }
+    return sessions;
+  }
+
+  beginLoadSession(
+    containerId: string,
+    context?: HTMLElement | Document | Window,
+  ) {
+    const sessions = this.getLoadSessionMap(this.resolveDocument(context));
+    const next = (sessions.get(containerId) ?? 0) + 1;
+    sessions.set(containerId, next);
     return next;
   }
 
-  isLoadSessionActive(containerId: string, loadSession: number) {
-    return this.loadSessions.get(containerId) === loadSession;
+  isLoadSessionActive(
+    containerId: string,
+    loadSession: number,
+    context?: HTMLElement | Document | Window,
+  ) {
+    return (
+      this.getLoadSessionMap(this.resolveDocument(context)).get(containerId) ===
+      loadSession
+    );
   }
 
   getDefault() {
     return this.defaultManager;
   }
 
-  create(containerId: string) {
+  create(container: string | HTMLElement, context?: Document | Window) {
+    const containerId =
+      typeof container === "string" ? container : container.id;
+    const ownerDocument = this.resolveDocument(
+      typeof container === "string" ? context : container,
+    );
+    const managers = this.getManagerMap(ownerDocument);
     const manager =
-      this.managers.get(containerId) || new EditorManager(containerId);
-    this.managers.set(containerId, manager);
+      managers.get(containerId) ||
+      new EditorManager(
+        typeof container === "string" ? containerId : container,
+        ownerDocument ?? undefined,
+      );
+    managers.set(containerId, manager);
+    this.managers.add(manager);
     return manager;
   }
 
-  get(containerId: string) {
-    return this.managers.get(containerId) || this.create(containerId);
+  get(container: string | HTMLElement, context?: Document | Window) {
+    const containerId =
+      typeof container === "string" ? container : container.id;
+    const ownerDocument = this.resolveDocument(
+      typeof container === "string" ? context : container,
+    );
+    return (
+      this.getManagerMap(ownerDocument).get(containerId) ||
+      this.create(container, context)
+    );
   }
 
   getAll() {
-    return [this.defaultManager, ...this.managers.values()];
+    return [this.defaultManager, ...this.managers];
   }
 
-  destroy(containerId: string) {
-    this.beginLoadSession(containerId);
-    const manager = this.managers.get(containerId);
+  destroy(container: string | HTMLElement, context?: Document | Window) {
+    const containerId =
+      typeof container === "string" ? container : container.id;
+    const ownerDocument = this.resolveDocument(
+      typeof container === "string" ? context : container,
+    );
+    this.beginLoadSession(containerId, ownerDocument ?? undefined);
+    const managers = this.getManagerMap(ownerDocument);
+    const manager = managers.get(containerId);
     manager?.destroy();
-    this.managers.delete(containerId);
+    if (manager) this.managers.delete(manager);
+    managers.delete(containerId);
   }
 
   destroyAll() {
     this.beginLoadSession(this.defaultManager.getInstanceId());
     this.defaultManager.destroy();
-    for (const manager of this.managers.values()) {
-      this.beginLoadSession(manager.getInstanceId());
+    for (const manager of this.managers) {
       manager.destroy();
     }
     this.managers.clear();
+    this.managersByDocument = new WeakMap();
+    this.orphanManagers.clear();
+    this.loadSessionsByDocument = new WeakMap();
+    this.orphanLoadSessions.clear();
   }
 }
 export const editorManagerFactory = new EditorManagerFactory();

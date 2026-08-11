@@ -6,7 +6,11 @@ const expectedSteps = [
   "editor server latest wins",
   "cross-origin bridge isolation",
   "bridge lifecycle races",
+  "plugin config proxy allowlist",
   "Editor.bin source detection",
+  "compatibility facade contracts",
+  "compatibility native output callbacks",
+  "cross-document compat mount",
 ];
 
 test("runtime regression contracts", async ({ page }) => {

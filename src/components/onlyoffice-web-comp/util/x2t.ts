@@ -16,7 +16,9 @@ import type { EditorLogger } from "../internal/editor/logger";
 export async function createEditorView(options: CreateEditorViewOptions) {
   const manager =
     options.editorManager ||
-    (options.containerId
+    (options.container
+      ? editorManagerFactory.get(options.container)
+      : options.containerId
       ? editorManagerFactory.get(options.containerId)
       : editorManagerFactory.getDefault());
 

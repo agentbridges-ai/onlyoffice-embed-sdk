@@ -3,6 +3,7 @@ import {
   STATIC_RESOURCE,
   X2T_PDF_FONT_MANIFEST,
 } from "../../const";
+import { brotliDecompress } from "../vendor/brotli-dec";
 
 const WASM_MAGIC = [0x00, 0x61, 0x73, 0x6d] as const;
 
@@ -62,7 +63,7 @@ async function decompressWithStream(buffer: ArrayBuffer) {
 }
 
 function decompressWithVendoredBrotli(buffer: ArrayBuffer) {
-  return import("../vendor/brotli-dec").then(({ brotliDecompress }) =>
+  return Promise.resolve(
     toArrayBuffer(brotliDecompress(new Uint8Array(buffer))),
   );
 }

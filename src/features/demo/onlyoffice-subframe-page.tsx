@@ -6,6 +6,7 @@ import {
   OnlyOfficeManager,
   onlyOfficeManagerFactory,
   onlyofficeEventbus,
+  type DocumentReadyData,
   type OnlyOfficeConnector,
   type OfficeTheme,
 } from "@/components/onlyoffice-web-comp";
@@ -29,6 +30,17 @@ type ConnectorPayload = {
   args?: unknown[];
   recalculate?: boolean;
 };
+
+type PendingDocumentReady = {
+  expectedFileName: string;
+  manager?: object;
+  payload?: DocumentReadyData;
+  resolve: () => void;
+  reject: (reason?: unknown) => void;
+  timer: number;
+};
+
+const DOCUMENT_READY_TIMEOUT_MS = 60_000;
 
 function getInstanceId() {
   if (typeof window === "undefined") return "";
@@ -127,6 +139,23 @@ export function OnlyOfficeSubframePage() {
     const instanceId = getInstanceId();
     instanceIdRef.current = instanceId;
     parentOriginRef.current = getParentOrigin();
+    let pendingDocumentReady: PendingDocumentReady | null = null;
+
+    const settleDocumentReady = () => {
+      const pending = pendingDocumentReady;
+      if (
+        !pending?.manager ||
+        !pending.payload?.manager ||
+        pending.payload.manager !== pending.manager ||
+        pending.payload.fileName !== pending.expectedFileName
+      ) {
+        return;
+      }
+
+      window.clearTimeout(pending.timer);
+      pendingDocumentReady = null;
+      pending.resolve();
+    };
 
     const postEvent = (event: SubframeEventName, payload: unknown) => {
       sendMessage(parentOriginRef.current, {
@@ -141,8 +170,21 @@ export function OnlyOfficeSubframePage() {
     const onLoadingChange = (payload: { loading: boolean }) => {
       postEvent("loading-change", payload);
     };
-    const onDocumentReady = (payload: unknown) => {
-      postEvent("document-ready", payload);
+    const onDocumentReady = (payload: DocumentReadyData) => {
+      if (payload.instanceId !== SUBFRAME_EDITOR_CONTAINER_ID) return;
+
+      // The manager is an internal lifecycle owner and is not structured-clone
+      // safe. Keep it in this Window for matching, and expose only protocol data.
+      postEvent("document-ready", {
+        fileName: payload.fileName,
+        fileType: payload.fileType,
+        instanceId: payload.instanceId,
+      });
+
+      if (pendingDocumentReady) {
+        pendingDocumentReady.payload = payload;
+        settleDocumentReady();
+      }
     };
     const onOfficeXmlLimit = (payload: unknown) => {
       postEvent("office-xml-size-limit-exceeded", payload);
@@ -262,24 +304,78 @@ export function OnlyOfficeSubframePage() {
 
     const openEditor = async (payload: SubframeOpenPayload) => {
       configureStaticResource();
-      const manager = await onlyOfficeManagerFactory.open(
-        {
-          containerId: SUBFRAME_EDITOR_CONTAINER_ID,
-          fileType: payload.fileType,
-          defaultFileName: payload.defaultFileName,
-          readOnly: payload.readOnly,
-          theme: payload.theme,
-          officeXmlEvent: payload.officeXmlEvent,
-        },
-        payload.document,
-      );
-      managerRef.current = manager;
-      connectorRef.current = null;
-      return {
-        fileName: payload.document.fileName,
-        fileType: payload.fileType,
-        readOnly: manager.getReadOnly(),
+      if (pendingDocumentReady) {
+        window.clearTimeout(pendingDocumentReady.timer);
+        pendingDocumentReady.reject(
+          new DOMException("OnlyOffice open was superseded", "AbortError"),
+        );
+        pendingDocumentReady = null;
+      }
+
+      let resolveReady!: () => void;
+      let rejectReady!: (reason?: unknown) => void;
+      const readyPromise = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+      });
+      // The editor factory can fail before this promise is awaited. Attach a
+      // rejection observer immediately while preserving the awaited result.
+      void readyPromise.catch(() => {});
+      pendingDocumentReady = {
+        expectedFileName: payload.document.fileName,
+        resolve: resolveReady,
+        reject: rejectReady,
+        timer: window.setTimeout(() => {
+          if (!pendingDocumentReady) return;
+          pendingDocumentReady = null;
+          rejectReady(
+            new Error("Timed out waiting for OnlyOffice document ready"),
+          );
+        }, DOCUMENT_READY_TIMEOUT_MS),
       };
+
+      try {
+        const manager = await onlyOfficeManagerFactory.open(
+          {
+            containerId: SUBFRAME_EDITOR_CONTAINER_ID,
+            fileType: payload.fileType,
+            defaultFileName: payload.defaultFileName,
+            readOnly: payload.readOnly,
+            theme: payload.theme,
+            officeXmlEvent: payload.officeXmlEvent,
+          },
+          payload.document,
+        );
+        managerRef.current = manager;
+        connectorRef.current = null;
+
+        if (!pendingDocumentReady) {
+          throw new DOMException("OnlyOffice open was superseded", "AbortError");
+        }
+        const editor = manager.getEditor();
+        if (editor.isOfficeXmlSizeLimitExceeded()) {
+          window.clearTimeout(pendingDocumentReady.timer);
+          pendingDocumentReady = null;
+          resolveReady();
+        } else {
+          pendingDocumentReady.manager = editor;
+        }
+        settleDocumentReady();
+        await readyPromise;
+
+        return {
+          fileName: payload.document.fileName,
+          fileType: payload.fileType,
+          readOnly: manager.getReadOnly(),
+        };
+      } catch (error) {
+        if (pendingDocumentReady) {
+          window.clearTimeout(pendingDocumentReady.timer);
+          pendingDocumentReady = null;
+        }
+        rejectReady(error);
+        throw error;
+      }
     };
 
     const runAction = async (request: SubframeRequest) => {
@@ -380,6 +476,13 @@ export function OnlyOfficeSubframePage() {
     });
 
     return () => {
+      if (pendingDocumentReady) {
+        window.clearTimeout(pendingDocumentReady.timer);
+        pendingDocumentReady.reject(
+          new DOMException("OnlyOffice subframe was disposed", "AbortError"),
+        );
+        pendingDocumentReady = null;
+      }
       window.removeEventListener("message", onMessage);
       onlyofficeEventbus.off(
         ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE,

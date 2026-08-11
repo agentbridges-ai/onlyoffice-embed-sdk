@@ -26,6 +26,7 @@ import {
 } from "./subframe-protocol";
 
 const RPC_TIMEOUT_MS = 30_000;
+const OPEN_RPC_TIMEOUT_MS = 75_000;
 
 type PendingRequest = {
   action: SubframeRequestAction;
@@ -392,12 +393,14 @@ export class SubframeManager implements MultiInstanceManager {
       payload: request.payload,
     };
 
+    const timeoutMs =
+      request.action === "open" ? OPEN_RPC_TIMEOUT_MS : RPC_TIMEOUT_MS;
     const timer = window.setTimeout(() => {
       this.pending.delete(id);
       request.reject(
         new Error(`OnlyOffice subframe request timed out: ${request.action}`),
       );
-    }, RPC_TIMEOUT_MS);
+    }, timeoutMs);
     this.pending.set(id, {
       action: request.action,
       resolve: request.resolve,

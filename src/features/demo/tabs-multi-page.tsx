@@ -181,6 +181,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
   const [cdnOrigin, setCdnOrigin] = useState(resourceState.cdnOrigin);
   const initializedRef = useRef(new Set<string>());
   const connectorsRef = useRef(new Map<string, ConnectorDemo>());
+  const openingTabsRef = useRef(new Map<string, Promise<void>>());
   const frameRefs = useRef(new Map<string, HTMLIFrameElement>());
   const managersRef = useRef(new Map<string, SubframeManager>());
   const activeIdRef = useRef(activeId);
@@ -293,6 +294,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
         connectorsRef.current.clear();
         managersRef.current.forEach((manager) => manager.destroy());
         managersRef.current.clear();
+        openingTabsRef.current.clear();
         initializedRef.current.clear();
       }),
     [],
@@ -338,24 +340,38 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
     }
   };
 
-  const openTabEditor = async (tab: TabItem) => {
-    const preset = getPreset(tab.docKind);
+  const openTabEditor = (tab: TabItem) => {
+    const existing = openingTabsRef.current.get(tab.id);
+    if (existing) return existing;
 
-    const manager = getTabManager(tab);
-    manager.configure({
-      defaultFileName: preset.defaultFileName,
-      readOnly: tab.readOnly,
-      theme,
-      officeXmlEvent: getOfficeXmlEventConfig(),
-    });
-    await manager.openDocument({
-      fileName: tab.fileName,
-      isNew: isNewDocument(tab),
-      readOnly: tab.readOnly,
-    });
+    const opening = (async () => {
+      const preset = getPreset(tab.docKind);
 
-    replaceTabConnector(tab.id, manager);
-    initializedRef.current.add(tab.id);
+      const manager = getTabManager(tab);
+      manager.configure({
+        defaultFileName: preset.defaultFileName,
+        readOnly: tab.readOnly,
+        theme,
+        officeXmlEvent: getOfficeXmlEventConfig(),
+      });
+      await manager.openDocument({
+        fileName: tab.fileName,
+        isNew: isNewDocument(tab),
+        readOnly: tab.readOnly,
+      });
+
+      replaceTabConnector(tab.id, manager);
+      initializedRef.current.add(tab.id);
+    })();
+
+    openingTabsRef.current.set(tab.id, opening);
+    const clearOpening = () => {
+      if (openingTabsRef.current.get(tab.id) === opening) {
+        openingTabsRef.current.delete(tab.id);
+      }
+    };
+    void opening.then(clearOpening, clearOpening);
+    return opening;
   };
 
   useEffect(() => {
@@ -368,12 +384,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
 
     openTabEditor(tab)
       .then(() => {
-        if (cancelled) {
-          managersRef.current.get(tab.id)?.destroy();
-          managersRef.current.delete(tab.id);
-          initializedRef.current.delete(tab.id);
-          return;
-        }
+        if (cancelled) return;
         setLoading(false);
       })
       .catch((err) => {
@@ -395,6 +406,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
       connectorsRef.current.clear();
       managersRef.current.forEach((manager) => manager.destroy());
       managersRef.current.clear();
+      openingTabsRef.current.clear();
       frameRefs.current.clear();
       initializedRef.current.clear();
       if (connectorMessageTimerRef.current !== null) {
@@ -425,6 +437,7 @@ export function TabsMultiPage({ embedded = false }: { embedded?: boolean }) {
       removeTabConnector(tab.id);
       managersRef.current.get(tab.id)?.destroy();
       managersRef.current.delete(tab.id);
+      openingTabsRef.current.delete(tab.id);
       frameRefs.current.delete(tab.id);
       initializedRef.current.delete(tab.id);
     }

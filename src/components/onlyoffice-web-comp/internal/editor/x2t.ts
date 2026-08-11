@@ -9,6 +9,7 @@ import {
   type StaticResource,
 } from "../../const";
 import type { EditorLogger } from "./logger";
+import X2tWorker from "./x2t.worker?worker&inline";
 
 const DEFAULT_WORKER_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60_000;
@@ -136,10 +137,7 @@ export class X2tConverter {
   constructor(options: X2tConverterOptions = {}) {
     this.workerFactory =
       options.workerFactory ??
-      (() =>
-        new Worker(new URL("./x2t.worker.ts", import.meta.url), {
-          type: "module",
-        }));
+      (() => new X2tWorker({ name: "onlyoffice-x2t" }));
     this.workerReadyTimeoutMs =
       options.workerReadyTimeoutMs ?? DEFAULT_WORKER_READY_TIMEOUT_MS;
     this.requestTimeoutMs =
