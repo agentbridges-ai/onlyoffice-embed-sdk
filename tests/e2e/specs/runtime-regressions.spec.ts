@@ -16,7 +16,7 @@ const expectedSteps = [
 ];
 
 test("runtime regression contracts", async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
   await page.goto("/e2e/runtime-regressions", {
     waitUntil: "domcontentloaded",
   });
@@ -41,10 +41,11 @@ test("runtime regression contracts", async ({ page }) => {
       );
     },
     expectedSteps.length,
-    // The page executes heavyweight browser/runtime checks serially. CI
-    // runners can need slightly more than ten seconds even when every check
-    // succeeds, so keep the assertions strict while allowing scheduling slack.
-    { timeout: 60_000 },
+    // The page executes heavyweight browser/runtime checks serially. Shared CI
+    // runners can pause for substantially longer than local production
+    // previews, so keep every result assertion strict while allowing the
+    // aggregate harness enough scheduling slack to settle.
+    { timeout: 120_000 },
   );
 
   const status = await page.getByTestId("regression-status").innerText();
