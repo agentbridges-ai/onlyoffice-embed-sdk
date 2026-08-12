@@ -416,30 +416,62 @@ async function testFacadeActionsAndCallbacks() {
       const savedAs = await instance.saveAs("docx");
       const downloaded = await instance.download("xlsx");
       const originalOpen = window.open;
+      let popupOpenCalls = 0;
       let printCalls = 0;
       let printedPdfNavigation = false;
       let navigatedPrintUrl = "";
-      const fakePrintWindow = {
-        location: {
-          replace: (url: string) => {
-            navigatedPrintUrl = url;
-            printedPdfNavigation = url.startsWith("blob:");
-          },
-        },
-        focus: () => undefined,
-        print: () => {
-          printCalls += 1;
-        },
-        close: () => undefined,
-      } as unknown as Window;
+      let printFrameCount = 0;
+      let printFrame: HTMLIFrameElement | null = null;
+      const printObserver = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (
+              node.nodeType !== Node.ELEMENT_NODE ||
+              (node as Element).getAttribute("data-onlyoffice-print-target") !==
+                "pdf"
+            ) {
+              continue;
+            }
+            const frame = node as HTMLIFrameElement;
+            printFrame = frame;
+            printFrameCount += 1;
+            const markPrintableFrame = () => {
+              navigatedPrintUrl = frame.src;
+              printedPdfNavigation = frame.src.startsWith("blob:");
+              const frameWindow = frame.contentWindow;
+              if (!frameWindow) return;
+              Object.defineProperty(frameWindow, "print", {
+                configurable: true,
+                value: () => {
+                  printCalls += 1;
+                },
+              });
+            };
+            markPrintableFrame();
+            frame.addEventListener("load", markPrintableFrame);
+          }
+        }
+      });
+      printObserver.observe(document.body, { childList: true });
       window.open = function () {
-        return fakePrintWindow;
+        popupOpenCalls += 1;
+        return null;
       } as typeof window.open;
       let printed: File;
       try {
-        printed = await instance.print();
+        const [primaryPrint, duplicatePrint] = await Promise.all([
+          instance.print(),
+          instance.print(),
+        ]);
+        printed = primaryPrint;
+        assert(
+          duplicatePrint.name === primaryPrint.name &&
+            duplicatePrint.size === primaryPrint.size,
+          "concurrent print did not share the active PDF export",
+        );
       } finally {
         window.open = originalOpen;
+        printObserver.disconnect();
       }
       assert(saved.name === "output.pdf", "save targetExt was not forwarded");
       assert(savedAs.name === "output.docx", "saveAs targetExt was not forwarded");
@@ -448,8 +480,11 @@ async function testFacadeActionsAndCallbacks() {
         printed.name === "output.pdf" &&
           printedPdfNavigation &&
           navigatedPrintUrl.startsWith("blob:") &&
-          printCalls === 1,
-        "print PDF did not navigate and print from the parent print window",
+          printFrameCount === 1 &&
+          printCalls === 1 &&
+          popupOpenCalls === 0 &&
+          printFrame?.isConnected === false,
+        "print PDF did not use exactly one direct PDF frame",
       );
       assert(await instance.confirmSaveToNewFormat({ dontshow: true }), "confirm RPC failed");
       assert(

@@ -10,6 +10,7 @@ const expectedSteps = [
   "plugin config proxy allowlist",
   "Editor.bin source detection",
   "compatibility facade contracts",
+  "native print frame load gate",
   "native preview print logo configuration",
   "compatibility native output callbacks",
   "cross-document compat mount",

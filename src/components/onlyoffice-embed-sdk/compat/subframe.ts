@@ -40,7 +40,7 @@ import {
   type CompatSubframeResponse,
   type CompatSubframeSerializedError,
 } from "./subframe-protocol";
-import { openOfficePrintWindow, printOfficePdfFile } from "./print";
+import { printOfficePdfFile } from "./print";
 
 export * from "./subframe-protocol";
 export {
@@ -653,6 +653,7 @@ class CompatSubframeMount implements OfficeEditorMount {
   private destroyPromise: Promise<void> | null = null;
   private cleanupPromise: Promise<void> | null = null;
   private activatePromise: Promise<OfficeEditorInstance> | null = null;
+  private printPromise: Promise<File> | null = null;
   private instance: CompatSubframeInstance;
   private pending = new Map<string, PendingRequest>();
   private lastReportedError: { key: string; at: number } | null = null;
@@ -779,23 +780,21 @@ class CompatSubframeMount implements OfficeEditorMount {
   }
 
   async print(): Promise<File> {
-    const printWindow = openOfficePrintWindow(
-      this.ownerWindow,
-      this.container.ownerDocument,
-    );
-    try {
+    if (this.printPromise) return this.printPromise;
+    let operation: Promise<File>;
+    operation = (async () => {
       const file = (await this.request("print")) as File;
       await printOfficePdfFile({
         ownerWindow: this.ownerWindow,
         ownerDocument: this.container.ownerDocument,
         file,
-        printWindow,
       });
       return file;
-    } catch (error) {
-      printWindow?.close();
-      throw error;
-    }
+    })().finally(() => {
+      if (this.printPromise === operation) this.printPromise = null;
+    });
+    this.printPromise = operation;
+    return operation;
   }
 
   activate(): Promise<OfficeEditorInstance> {

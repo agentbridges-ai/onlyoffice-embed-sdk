@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   callCrossOriginEditor,
   CROSS_ORIGIN_BRIDGE_MESSAGE,
+  guardPendingPrintFrameLoad,
   registerCrossOriginBridge,
   subscribeCrossOriginEditorEvent,
   unregisterCrossOriginBridge,
@@ -87,6 +88,28 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function delay(timeout: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, timeout));
+}
+
+async function testNativePrintFrameLoadGate() {
+  const frame = document.createElement("iframe");
+  frame.id = "id-print-frame";
+  let printHandlerCalls = 0;
+  frame.onload = () => {
+    printHandlerCalls += 1;
+  };
+  const allowPrintNavigation = guardPendingPrintFrameLoad(frame);
+
+  frame.dispatchEvent(new Event("load"));
+  assert(
+    printHandlerCalls === 0,
+    "the initial about:blank print frame load was not suppressed",
+  );
+  allowPrintNavigation();
+  frame.dispatchEvent(new Event("load"));
+  assert(
+    Number(printHandlerCalls) === 1,
+    "the final PDF print frame load did not run exactly once",
+  );
 }
 
 async function waitFor<T>(read: () => T | undefined, timeout = 1_000) {
@@ -1641,87 +1664,85 @@ async function testCompatibilityNativeOutputCallbacks() {
     );
 
     const originalPopupOpen = popup.open;
-    let printPopup: Window | null = null;
+    let popupOpenCalls = 0;
     let printCalls = 0;
-    let popupPrintedPdf = false;
-    let fallbackPrintedPdf = false;
-    const fakePrintWindow = {
-      location: {
-        replace: (url: string) => {
-          popupPrintedPdf = url.startsWith("blob:");
-        },
-      },
-      focus: () => undefined,
-      print: () => {
-        printCalls += 1;
-      },
-      close: () => undefined,
-    } as unknown as Window;
+    let printedPdf = false;
+    let printFrameCount = 0;
+    const observedPrintFrames: HTMLIFrameElement[] = [];
+    const printObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (
+            node.nodeType !== Node.ELEMENT_NODE ||
+            (node as Element).getAttribute("data-onlyoffice-print-target") !==
+              "pdf"
+          ) {
+            continue;
+          }
+          const frame = node as HTMLIFrameElement;
+          observedPrintFrames.push(frame);
+          printFrameCount += 1;
+          const markPrintableFrame = () => {
+            const frameWindow = frame.contentWindow;
+            if (!frameWindow) return;
+            printedPdf = frame.src.startsWith("blob:");
+            Object.defineProperty(frameWindow, "print", {
+              configurable: true,
+              value: () => {
+                printCalls += 1;
+              },
+            });
+          };
+          markPrintableFrame();
+          frame.addEventListener("load", markPrintableFrame);
+        }
+      }
+    });
+    printObserver.observe(popup.document.body, { childList: true });
     popup.open = function () {
-      printPopup = fakePrintWindow;
-      return printPopup;
+      popupOpenCalls += 1;
+      return null;
     } as typeof popup.open;
     try {
-      const printedFile = await instance.print();
+      const [printedFile, duplicatePrintFile] = await Promise.all([
+        instance.print(),
+        instance.print(),
+      ]);
       const printedHeader = new TextDecoder("ascii").decode(
         (await printedFile.arrayBuffer()).slice(0, 5),
       );
       assert(
         printedFile.name.endsWith(".pdf") &&
+          duplicatePrintFile.name === printedFile.name &&
+          duplicatePrintFile.size === printedFile.size &&
           printedHeader === "%PDF-" &&
-          popupPrintedPdf &&
-          printCalls === 1,
-        "first print did not navigate the popup to the exported PDF",
+          printedPdf &&
+          printFrameCount === 1 &&
+          printCalls === 1 &&
+          popupOpenCalls === 0 &&
+          observedPrintFrames.every((frame) => !frame.isConnected),
+        "first print did not use exactly one direct PDF frame",
       );
       assert(
         instance.getState().dirty,
         "printing a copy incorrectly persisted the edited document",
       );
 
-      printPopup?.close();
-      printPopup = null;
-      const fallbackObserver = new MutationObserver((records) => {
-        for (const record of records) {
-          for (const node of record.addedNodes) {
-            if (
-              node.nodeType !== Node.ELEMENT_NODE ||
-              (node as Element).tagName !== "IFRAME"
-            ) {
-              continue;
-            }
-            const frame = node as HTMLIFrameElement;
-            const markPrintableFrame = () => {
-              const frameWindow = frame.contentWindow;
-              if (!frameWindow) return;
-              fallbackPrintedPdf = frame.src.startsWith("blob:");
-              Object.defineProperty(frameWindow, "print", {
-                configurable: true,
-                value: () => {
-                  printCalls += 1;
-                },
-              });
-            };
-            markPrintableFrame();
-            frame.addEventListener("load", markPrintableFrame);
-          }
-        }
-      });
-      fallbackObserver.observe(popup.document.body, { childList: true });
-      popup.open = () => null;
-      try {
-        const fallbackFile = await instance.print();
-        assert(
-          fallbackFile.name.endsWith(".pdf") &&
-            fallbackPrintedPdf &&
-            Number(printCalls) === 2,
-          "popup-blocked printing did not navigate the hidden frame to the PDF",
-        );
-      } finally {
-        fallbackObserver.disconnect();
-      }
+      printedPdf = false;
+      const secondFile = await instance.print();
+      assert(
+        secondFile.name.endsWith(".pdf") &&
+          printedPdf &&
+          Number(printFrameCount) === 2 &&
+          Number(printCalls) === 2 &&
+          popupOpenCalls === 0 &&
+          observedPrintFrames.every((frame) => !frame.isConnected),
+        "second print did not create exactly one independent PDF frame",
+      );
     } finally {
+      printObserver.disconnect();
       popup.open = originalPopupOpen;
-      printPopup?.close();
+      for (const frame of observedPrintFrames) frame.remove();
       handleDownloadAs = undefined;
     }
 
@@ -2077,6 +2098,7 @@ const regressionTests = [
   ["plugin config proxy allowlist", testPluginConfigProxyAllowlist],
   ["Editor.bin source detection", testEditorBinDetection],
   ["compatibility facade contracts", testCompatibilityFacadeContracts],
+  ["native print frame load gate", testNativePrintFrameLoadGate],
   ["native preview print logo configuration", testNativeEditorConfiguration],
   [
     "compatibility native output callbacks",
