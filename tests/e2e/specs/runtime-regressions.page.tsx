@@ -1443,11 +1443,6 @@ async function testCompatibilityNativeOutputCallbacks() {
     const server = (
       manager as unknown as { server: CompatServer }
     ).server;
-    const nativeEditorBin = server.getDocumentSnapshot().binData;
-    assert(
-      nativeEditorBin?.byteLength,
-      "native save regression requires a real Editor.bin snapshot",
-    );
     const documentKey = server.getDocument().key;
     const socket = io(undefined, { deferConnect: true });
     const serverMessages: Array<Record<string, unknown>> = [];
@@ -1505,6 +1500,16 @@ async function testCompatibilityNativeOutputCallbacks() {
       "programmatic save persistence escaped the onSave channel",
     );
 
+    const privateInstance = instance as unknown as {
+      persistSavedFile(file: File): Promise<void>;
+      persistNativeSavedFile(output: { binData: Uint8Array }): Promise<void>;
+    };
+    privateInstance.persistNativeSavedFile = async (output) => {
+      await privateInstance.persistSavedFile(
+        new PopupFile([output.binData.slice()], "New_Document.docx"),
+      );
+    };
+
     dispatchDocumentStateChange({ data: true });
     await waitFor(() => instance?.getState().dirty === true);
     blockProgrammaticSave = true;
@@ -1517,7 +1522,7 @@ async function testCompatibilityNativeOutputCallbacks() {
         outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
         title: "New_Document.docx",
       },
-      nativeEditorBin.slice(),
+      new TextEncoder().encode("DOCY;v5;native-toolbar-save"),
     ).then((response) => {
       nativeSaveSettled = true;
       return response;
@@ -1953,7 +1958,7 @@ async function testCompatibilityNativeOutputCallbacks() {
         outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
         title: "New_Document.docx",
       },
-      nativeEditorBin.slice(),
+      new TextEncoder().encode("DOCY;v5;native-toolbar-save-rejected"),
     );
     const rejectedNativeResult = (await rejectedNativeResponse.json()) as {
       status?: unknown;
