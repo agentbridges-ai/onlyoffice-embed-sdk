@@ -26,7 +26,10 @@ import {
   type CompatSubframeParentMessage,
   type CompatSubframeRequest,
 } from "@/components/onlyoffice-embed-sdk/compat/subframe-protocol";
-import { ONLYOFFICE_EMBED_HOST_ASSET_DIGEST } from "@/components/onlyoffice-embed-sdk/compat/version";
+import {
+  ONLYOFFICE_EMBED_HOST_ASSET_DIGEST,
+  ONLYOFFICE_EMBED_HOST_BUILD_ID,
+} from "@/components/onlyoffice-embed-sdk/compat/version";
 
 const ONLYOFFICE_RESOURCE_VERSION = "9.4.0-develop";
 const CALLBACK_TIMEOUT_MS = 75_000;
@@ -142,11 +145,24 @@ function isDocument(value: unknown): value is CompatSubframeDocument {
 function isOpenPayload(value: unknown): value is CompatSubframeOpenPayload {
   if (!isRecord(value) || !isRecord(value.callbacks)) return false;
   let hostUrl: URL;
+  let resourceOrigin: URL;
   try {
     hostUrl = new URL(String(value.hostUrl));
+    resourceOrigin = new URL(String(value.resourceOrigin));
   } catch {
     return false;
   }
+  const productionSubframe =
+    window.location.hostname.endsWith(".onlyoffice.agent-bridges.com") &&
+    window.location.protocol === "https:" &&
+    window.location.port === "";
+  const canonicalResourceOrigin = productionSubframe
+    ? resourceOrigin.hostname === "onlyoffice.agent-bridges.com" &&
+      resourceOrigin.protocol === "https:" &&
+      resourceOrigin.port === ""
+    : resourceOrigin.hostname === "onlyoffice.localhost" &&
+      /^https?:$/.test(resourceOrigin.protocol) &&
+      resourceOrigin.port === window.location.port;
   const plugins = value.plugins;
   const pluginsValid =
     plugins === undefined ||
@@ -160,6 +176,12 @@ function isOpenPayload(value: unknown): value is CompatSubframeOpenPayload {
     hostUrl.origin === window.location.origin &&
     !hostUrl.username &&
     !hostUrl.password &&
+    canonicalResourceOrigin &&
+    !resourceOrigin.username &&
+    !resourceOrigin.password &&
+    resourceOrigin.pathname === "/" &&
+    !resourceOrigin.search &&
+    !resourceOrigin.hash &&
     isDocument(value.document) &&
     ["edit", "readonly", "preview"].includes(String(value.mode)) &&
     typeof value.readonly === "boolean" &&
@@ -361,8 +383,9 @@ export function OnlyOfficeCompatSubframePage() {
       postEvent("loading-change", { loading: true });
       try {
         registerOnlyOfficeStaticResource({
-          cdnOrigin: window.location.origin,
+          cdnOrigin: payload.resourceOrigin,
           onlyofficeVersion: ONLYOFFICE_RESOURCE_VERSION,
+          onlyofficePath: `/onlyoffice/runtime/${ONLYOFFICE_EMBED_HOST_BUILD_ID}`,
           assetManifestDigest: ONLYOFFICE_EMBED_HOST_ASSET_DIGEST,
         });
         const container = document.getElementById(EDITOR_CONTAINER_ID);

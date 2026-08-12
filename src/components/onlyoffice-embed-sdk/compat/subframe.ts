@@ -156,6 +156,11 @@ export interface CreateOfficeEditorOptions
   extends DirectCreateOfficeEditorOptions {
   /** Path served by the embed-sdk site. hostUrl supplies the isolated origin. */
   subframePath?: string;
+  /**
+   * Shared static-resource origin. Defaults to the canonical production/local
+   * root while the outer editor iframe remains on its isolated zodiac origin.
+   */
+  resourceOrigin?: string | URL;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
   callbackTimeoutMs?: number;
@@ -386,7 +391,36 @@ function resolveSubframeUrl(
   subframeUrl.searchParams.set("instance", instanceId);
   subframeUrl.searchParams.set("session", sessionToken);
   subframeUrl.searchParams.set("parentOrigin", ownerWindow.location.origin);
-  return { hostUrl, subframeUrl };
+  const defaultResourceOrigin = new URL(hostUrl.origin);
+  defaultResourceOrigin.hostname = isProduction
+    ? PRODUCTION_HOST
+    : LOCAL_HOST;
+  const resourceOrigin = options.resourceOrigin
+    ? new URL(String(options.resourceOrigin), ownerWindow.location.href)
+    : defaultResourceOrigin;
+  const isProductionResourceOrigin =
+    resourceOrigin.hostname === PRODUCTION_HOST &&
+    resourceOrigin.protocol === "https:" &&
+    resourceOrigin.port === "";
+  const isLocalResourceOrigin =
+    resourceOrigin.hostname === LOCAL_HOST &&
+    /^https?:$/.test(resourceOrigin.protocol) &&
+    resourceOrigin.port === hostUrl.port;
+  if (
+    resourceOrigin.username ||
+    resourceOrigin.password ||
+    resourceOrigin.pathname !== "/" ||
+    resourceOrigin.search ||
+    resourceOrigin.hash ||
+    (isProduction
+      ? !isProductionResourceOrigin
+      : !isLocalResourceOrigin)
+  ) {
+    throw new OfficeSubframeConfigurationError(
+      "resourceOrigin must use the canonical onlyoffice.agent-bridges.com or onlyoffice.localhost origin",
+    );
+  }
+  return { hostUrl, resourceOrigin, subframeUrl };
 }
 
 function isOfficeEditorState(value: unknown): value is OfficeEditorState {
@@ -644,7 +678,7 @@ class CompatSubframeMount implements OfficeEditorMount {
       fileType: described.fileType,
       mode,
     };
-    const { hostUrl, subframeUrl } = resolveSubframeUrl(
+    const { hostUrl, resourceOrigin, subframeUrl } = resolveSubframeUrl(
       options,
       context,
       this.id,
@@ -675,6 +709,7 @@ class CompatSubframeMount implements OfficeEditorMount {
     this.inputDocument = described.document;
     this.openPayloadBase = {
       hostUrl: hostUrl.toString(),
+      resourceOrigin: resourceOrigin.origin,
       expectedHostIdentity: options.expectedHostIdentity,
       mode,
       readonly: mode !== "edit",

@@ -115,7 +115,10 @@ const fakeChildHtml = String.raw`<!doctype html>
     void (async () => {
       const payload = message.payload || {};
       if (message.action === "open") {
-        lastOpen = await inspectDocument(payload.document);
+        lastOpen = {
+          ...(await inspectDocument(payload.document)),
+          resourceOrigin: payload.resourceOrigin,
+        };
         const fileName = payload.document.fileName;
         const fileType = fileName.split(".").pop() || "docx";
         state = {
@@ -426,6 +429,17 @@ test("all 12 real fixed origins expose the exact compatibility handshake", async
 
 test("real package facade activates and controls the hosted child", async ({ page }) => {
   test.setTimeout(90_000);
+  const staticResourceOrigins = new Set<string>();
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      url.pathname.endsWith("/web-apps/apps/api/documents/api.js") ||
+      url.pathname.endsWith("/x2t.js") ||
+      url.pathname.endsWith("/x2t.wasm")
+    ) {
+      staticResourceOrigins.add(url.origin);
+    }
+  });
   await page.goto(
     "/e2e/runtime-regressions?harness=real-compat-subframe",
     { waitUntil: "domcontentloaded" },
@@ -445,4 +459,6 @@ test("real package facade activates and controls the hosted child", async ({ pag
     { name: "real facade legacy DOC activation", status: "passed" },
   ]);
   expect(status).toBe("passed");
+  const canonicalOrigin = `${new URL(page.url()).protocol}//onlyoffice.localhost:${new URL(page.url()).port}`;
+  expect(Array.from(staticResourceOrigins)).toEqual([canonicalOrigin]);
 });

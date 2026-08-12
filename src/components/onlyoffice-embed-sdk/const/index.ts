@@ -110,6 +110,8 @@ export type OnlyOfficeStaticResourceOptions = {
   cdnOrigin?: string | null;
   /** CDN 上的 OnlyOffice 目录版本；未传时使用当前 SDK 版本。 */
   onlyofficeVersion?: string | null;
+  /** CDN 上已版本化的完整运行时路径，例如 /onlyoffice/runtime/<build-id>。 */
+  onlyofficePath?: string | null;
   /** 由部署/发布流程声明的资源清单 SHA-256；SDK 仅校验格式并用于 identity 比较。 */
   assetManifestDigest?: string | null;
 };
@@ -201,8 +203,11 @@ function buildStaticResource(): StaticResource {
     ? trimTrailingSlash(staticResourceOptions.cdnOrigin)
     : "";
   const onlyofficeVersion = staticResourceOptions?.onlyofficeVersion || DEFAULT_ONLYOFFICE_VERSION;
+  const configuredPath = staticResourceOptions?.onlyofficePath?.replace(/\/+$/, "");
   const onlyofficeRoot = cdnOrigin
-    ? `${cdnOrigin}/onlyoffice/${onlyofficeVersion}`
+    ? configuredPath
+      ? `${cdnOrigin}${configuredPath}`
+      : `${cdnOrigin}/onlyoffice/${onlyofficeVersion}`
     : DEFAULT_ONLYOFFICE_ROOT;
   const x2tRoot = cdnOrigin
     ? `${cdnOrigin}${isLocalOfficeSubframeOrigin(cdnOrigin) ? "/packages" : ""}/onlyoffice/x2t/${DEFAULT_X2T_RELEASE_TAG}`
@@ -242,6 +247,15 @@ export function registerOnlyOfficeStaticResource(
   const digest = options.assetManifestDigest?.toLowerCase() ?? null;
   if (digest !== null && !/^[a-f0-9]{64}$/.test(digest)) {
     throw new Error("assetManifestDigest must be a SHA-256 hex digest");
+  }
+  if (
+    options.onlyofficePath !== undefined &&
+    options.onlyofficePath !== null &&
+    (!options.onlyofficePath.startsWith("/") ||
+      options.onlyofficePath.includes("..") ||
+      /[?#]/.test(options.onlyofficePath))
+  ) {
+    throw new Error("onlyofficePath must be a safe absolute URL path");
   }
   staticResourceOptions = { ...options, assetManifestDigest: digest };
   staticResourceCache = null;

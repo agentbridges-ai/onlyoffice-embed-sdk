@@ -38,6 +38,7 @@ type InspectResult = {
   emptyType?: string;
   bytes?: number[];
   constructorName?: string;
+  resourceOrigin?: string;
 };
 
 type InternalMount = OfficeEditorMount & {
@@ -169,6 +170,54 @@ async function testFixedSlotsAndIframeUrls() {
     }
     assert(rejected, `unsafe production base was accepted: ${invalidBase}`);
   }
+  for (const invalidResourceOrigin of [
+    window.location.origin,
+    "https://rat.onlyoffice.agent-bridges.com",
+    "https://user:password@onlyoffice.agent-bridges.com",
+  ]) {
+    let rejected = false;
+    const container = makeContainer();
+    let unsafeMount: OfficeEditorMount | undefined;
+    try {
+      unsafeMount = facade().mountOfficeEditor(
+        container,
+        makeOptions(
+          { emptyType: "docx" },
+          { resourceOrigin: invalidResourceOrigin },
+        ),
+      );
+    } catch {
+      rejected = true;
+    } finally {
+      await unsafeMount?.destroy();
+      container.remove();
+    }
+    assert(
+      rejected,
+      `unsafe canonical resource origin was accepted: ${invalidResourceOrigin}`,
+    );
+  }
+  {
+    const container = makeContainer();
+    let rejected = false;
+    try {
+      facade().mountOfficeEditor(
+        container,
+        makeOptions(
+          { emptyType: "docx" },
+          {
+            hostUrl: "https://rat.onlyoffice.agent-bridges.com",
+            resourceOrigin: "http://onlyoffice.localhost",
+          },
+        ),
+      );
+    } catch {
+      rejected = true;
+    } finally {
+      container.remove();
+    }
+    assert(rejected, "production subframe accepted a local resource origin");
+  }
 
   const firstContainer = makeContainer();
   const duplicateContainer = makeContainer();
@@ -247,6 +296,10 @@ async function testStructuredCloneInputs() {
   assert(fileResult.fileName === "source.docx", "File name was not preserved");
   assert(JSON.stringify(fileResult.bytes) === "[1,2,3]", "File bytes changed");
   assert(fileResult.constructorName === "File", "File did not remain a File");
+  assert(
+    fileResult.resourceOrigin === localBase(),
+    "default resource origin did not use the shared local canonical host",
+  );
 
   const blob = new Blob([Uint8Array.from([4, 5, 6])], { type: "application/test" });
   const blobResult = await inspectInput(
