@@ -417,17 +417,23 @@ async function testFacadeActionsAndCallbacks() {
       const downloaded = await instance.download("xlsx");
       const originalOpen = window.open;
       let printCalls = 0;
-      window.open = function (url, target, features) {
-        const printWindow = originalOpen.call(window, url, target, features);
-        if (printWindow) {
-          Object.defineProperty(printWindow, "print", {
-            configurable: true,
-            value: () => {
-              printCalls += 1;
-            },
-          });
-        }
-        return printWindow;
+      let printedPdfNavigation = false;
+      let navigatedPrintUrl = "";
+      const fakePrintWindow = {
+        location: {
+          replace: (url: string) => {
+            navigatedPrintUrl = url;
+            printedPdfNavigation = url.startsWith("blob:");
+          },
+        },
+        focus: () => undefined,
+        print: () => {
+          printCalls += 1;
+        },
+        close: () => undefined,
+      } as unknown as Window;
+      window.open = function () {
+        return fakePrintWindow;
       } as typeof window.open;
       let printed: File;
       try {
@@ -439,8 +445,11 @@ async function testFacadeActionsAndCallbacks() {
       assert(savedAs.name === "output.docx", "saveAs targetExt was not forwarded");
       assert(downloaded.name === "output.xlsx", "download targetExt was not forwarded");
       assert(
-        printed.name === "output.pdf" && printCalls === 1,
-        "print PDF was not returned through the parent print window",
+        printed.name === "output.pdf" &&
+          printedPdfNavigation &&
+          navigatedPrintUrl.startsWith("blob:") &&
+          printCalls === 1,
+        "print PDF did not navigate and print from the parent print window",
       );
       assert(await instance.confirmSaveToNewFormat({ dontshow: true }), "confirm RPC failed");
       assert(

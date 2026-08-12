@@ -30,6 +30,75 @@ export function openOfficePrintWindow(
   return ownerWindow.open("", "_blank");
 }
 
+const PRINT_PDF_LOAD_TIMEOUT_MS = 15_000;
+const PRINT_PDF_LOAD_FALLBACK_MS = 3_000;
+const PRINT_PDF_RENDER_SETTLE_MS = 1_000;
+
+function waitForPdfNavigation(options: {
+  ownerWindow: Window;
+  frame: HTMLIFrameElement | null;
+  navigate: () => void;
+}) {
+  const { ownerWindow, frame, navigate } = options;
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let renderTimer: number | undefined;
+    let loadFallbackTimer: number | undefined;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      ownerWindow.clearTimeout(timeout);
+      if (renderTimer !== undefined) ownerWindow.clearTimeout(renderTimer);
+      if (loadFallbackTimer !== undefined) {
+        ownerWindow.clearTimeout(loadFallbackTimer);
+      }
+      frame?.removeEventListener("load", handleLoad);
+      frame?.removeEventListener("error", handleError);
+      error ? reject(error) : resolve();
+    };
+    const settleAfterRender = () => {
+      if (renderTimer !== undefined) return;
+      renderTimer = ownerWindow.setTimeout(
+        () => finish(),
+        PRINT_PDF_RENDER_SETTLE_MS,
+      );
+    };
+    const handleLoad = () => {
+      if (loadFallbackTimer !== undefined) {
+        ownerWindow.clearTimeout(loadFallbackTimer);
+      }
+      settleAfterRender();
+    };
+    const handleError = () => finish(new Error("Failed to load printable PDF"));
+    const timeout = ownerWindow.setTimeout(
+      () => finish(new Error("Timed out loading printable PDF")),
+      PRINT_PDF_LOAD_TIMEOUT_MS,
+    );
+    frame?.addEventListener("load", handleLoad, { once: true });
+    frame?.addEventListener("error", handleError, { once: true });
+    try {
+      navigate();
+      if (frame) {
+        // Headless Chromium and some PDF plug-in configurations do not expose
+        // a load event for a PDF document. Keep the direct-PDF target and use a
+        // conservative fallback rather than reverting to a printable wrapper.
+        loadFallbackTimer = ownerWindow.setTimeout(
+          settleAfterRender,
+          PRINT_PDF_LOAD_FALLBACK_MS,
+        );
+      } else {
+        // Chromium replaces the popup's WindowProxy when its PDF viewer takes
+        // over, so load/document readiness cannot be observed reliably from
+        // the opener. The target itself is already the PDF browsing context;
+        // a bounded render delay avoids printing the former about:blank page.
+        settleAfterRender();
+      }
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
 export async function printOfficePdfFile(options: {
   ownerWindow: Window;
   ownerDocument: Document;
@@ -54,49 +123,20 @@ export async function printOfficePdfFile(options: {
       throw new Error("Printable output is not a PDF");
     }
 
-    if (frame) {
-      ownerDocument.body.appendChild(frame);
-      await new Promise<void>((resolve, reject) => {
-        const timeout = ownerWindow.setTimeout(
-          () => reject(new Error("Timed out creating the print frame")),
-          5_000,
-        );
-        frame.onload = () => {
-          ownerWindow.clearTimeout(timeout);
-          resolve();
-        };
-        frame.onerror = () => {
-          ownerWindow.clearTimeout(timeout);
-          reject(new Error("Failed to create the print frame"));
-        };
-        frame.src = "about:blank";
-      });
-    }
-
+    if (frame) ownerDocument.body.appendChild(frame);
     const targetWindow = printWindow || frame?.contentWindow;
     if (!targetWindow) throw new Error("Failed to create a printable window");
-    const targetDocument = targetWindow.document;
-    targetDocument.title = `Print ${file.name}`;
-    targetDocument.documentElement.style.cssText =
-      "width:100%;height:100%;margin:0";
-    targetDocument.body.style.cssText = "width:100%;height:100%;margin:0";
-    const embed = targetDocument.createElement("embed");
-    embed.type = "application/pdf";
-    embed.src = objectUrl;
-    embed.style.cssText = "width:100%;height:100%;border:0";
-    targetDocument.body.replaceChildren(embed);
 
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const finish = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        ownerWindow.clearTimeout(timeout);
-        error ? reject(error) : resolve();
-      };
-      embed.onload = () => ownerWindow.setTimeout(() => finish(), 250);
-      embed.onerror = () => finish(new Error("Failed to load printable PDF"));
-      const timeout = ownerWindow.setTimeout(() => finish(), 2_500);
+    await waitForPdfNavigation({
+      ownerWindow,
+      frame,
+      navigate: () => {
+        if (printWindow) {
+          printWindow.location.replace(objectUrl);
+        } else if (frame) {
+          frame.src = objectUrl;
+        }
+      },
     });
     targetWindow.focus();
     targetWindow.print();
