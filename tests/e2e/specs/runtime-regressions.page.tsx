@@ -1643,16 +1643,22 @@ async function testCompatibilityNativeOutputCallbacks() {
     const originalPopupOpen = popup.open;
     let printPopup: Window | null = null;
     let printCalls = 0;
-    popup.open = function (url, target, features) {
-      printPopup = originalPopupOpen.call(popup, url, target, features);
-      if (printPopup) {
-        Object.defineProperty(printPopup, "print", {
-          configurable: true,
-          value: () => {
-            printCalls += 1;
-          },
-        });
-      }
+    let popupPrintedPdf = false;
+    let fallbackPrintedPdf = false;
+    const fakePrintWindow = {
+      location: {
+        replace: (url: string) => {
+          popupPrintedPdf = url.startsWith("blob:");
+        },
+      },
+      focus: () => undefined,
+      print: () => {
+        printCalls += 1;
+      },
+      close: () => undefined,
+    } as unknown as Window;
+    popup.open = function () {
+      printPopup = fakePrintWindow;
       return printPopup;
     } as typeof popup.open;
     try {
@@ -1663,8 +1669,9 @@ async function testCompatibilityNativeOutputCallbacks() {
       assert(
         printedFile.name.endsWith(".pdf") &&
           printedHeader === "%PDF-" &&
+          popupPrintedPdf &&
           printCalls === 1,
-        "inline print bridge did not print the exported PDF exactly once",
+        "first print did not navigate the popup to the exported PDF",
       );
       assert(
         instance.getState().dirty,
@@ -1683,16 +1690,19 @@ async function testCompatibilityNativeOutputCallbacks() {
               continue;
             }
             const frame = node as HTMLIFrameElement;
-            frame.addEventListener("load", () => {
+            const markPrintableFrame = () => {
               const frameWindow = frame.contentWindow;
               if (!frameWindow) return;
+              fallbackPrintedPdf = frame.src.startsWith("blob:");
               Object.defineProperty(frameWindow, "print", {
                 configurable: true,
                 value: () => {
                   printCalls += 1;
                 },
               });
-            });
+            };
+            markPrintableFrame();
+            frame.addEventListener("load", markPrintableFrame);
           }
         }
       });
@@ -1701,8 +1711,10 @@ async function testCompatibilityNativeOutputCallbacks() {
       try {
         const fallbackFile = await instance.print();
         assert(
-          fallbackFile.name.endsWith(".pdf") && Number(printCalls) === 2,
-          "popup-blocked printing did not use the hidden PDF frame",
+          fallbackFile.name.endsWith(".pdf") &&
+            fallbackPrintedPdf &&
+            Number(printCalls) === 2,
+          "popup-blocked printing did not navigate the hidden frame to the PDF",
         );
       } finally {
         fallbackObserver.disconnect();

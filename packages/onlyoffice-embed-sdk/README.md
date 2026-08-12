@@ -213,12 +213,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.4.1`, the expected identity is:
+application's release manifest. For SDK `0.4.2`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.4.1",
-  "hostBuildId": "onlyoffice-embed-sdk-hosted-v7",
+  "packageVersion": "0.4.2",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v8",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -272,6 +272,13 @@ modern theme through ONLYOFFICE's native theme controller. The active editor
 frame is not reloaded. A safe document-preserving remount remains available
 only as a compatibility fallback for an older or not-yet-ready hosted runtime.
 
+## PDF printing in 0.4.2
+
+`print()` still returns the exported PDF `File`. The pre-opened print window,
+or the popup-blocked hidden-frame fallback, now navigates directly to that PDF
+before invoking the browser print command. This ensures that Chromium prints
+the PDF viewer document on the first attempt instead of the temporary host HTML.
+
 ## Build and verify
 
 From the repository root:
@@ -288,7 +295,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.4.1`. The protected release workflow requires a GitHub-verified signed
+`sdk-v0.4.2`. The protected release workflow requires a GitHub-verified signed
 annotated tag on `main`, approval through the `npm-production` environment,
 and npm trusted publishing. It publishes the exact verified tarball with OIDC
 provenance; direct manual publication is not a supported release path.
