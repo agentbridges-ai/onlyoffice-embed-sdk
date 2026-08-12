@@ -20,33 +20,49 @@ test("runtime regression contracts", async ({ page }) => {
   await page.goto("/e2e/runtime-regressions", {
     waitUntil: "domcontentloaded",
   });
-  await page.waitForFunction(
-    (expectedStepCount) => {
-      const status =
-        document.querySelector('[data-testid="regression-status"]')
-          ?.textContent ?? "";
-      const rawResult =
-        document.querySelector('[data-testid="regression-result"]')
-          ?.textContent ?? "[]";
-      let steps: unknown = [];
-      try {
-        steps = JSON.parse(rawResult);
-      } catch {
-        return false;
-      }
-      return (
-        ["passed", "failed"].includes(status) &&
-        Array.isArray(steps) &&
-        steps.length === expectedStepCount
-      );
-    },
-    expectedSteps.length,
-    // The page executes heavyweight browser/runtime checks serially. Shared CI
-    // runners can pause for substantially longer than local production
-    // previews, so keep every result assertion strict while allowing the
-    // aggregate harness enough scheduling slack to settle.
-    { timeout: 120_000 },
-  );
+  try {
+    await page.waitForFunction(
+      (expectedStepCount) => {
+        const status =
+          document.querySelector('[data-testid="regression-status"]')
+            ?.textContent ?? "";
+        const rawResult =
+          document.querySelector('[data-testid="regression-result"]')
+            ?.textContent ?? "[]";
+        let steps: unknown = [];
+        try {
+          steps = JSON.parse(rawResult);
+        } catch {
+          return false;
+        }
+        return (
+          ["passed", "failed"].includes(status) &&
+          Array.isArray(steps) &&
+          steps.length === expectedStepCount
+        );
+      },
+      expectedSteps.length,
+      // The page executes heavyweight browser/runtime checks serially. Shared CI
+      // runners can pause for substantially longer than local production
+      // previews, so keep every result assertion strict while allowing the
+      // aggregate harness enough scheduling slack to settle.
+      { timeout: 120_000 },
+    );
+  } catch (error) {
+    const status = await page
+      .getByTestId("regression-status")
+      .innerText()
+      .catch(() => "missing");
+    const partial = await page
+      .getByTestId("regression-result")
+      .innerText()
+      .catch(() => "missing");
+    const diagnostic = new Error(
+      `runtime regression harness timed out (status=${status}, partial=${partial})`,
+    );
+    diagnostic.cause = error;
+    throw diagnostic;
+  }
 
   const status = await page.getByTestId("regression-status").innerText();
   const steps = JSON.parse(

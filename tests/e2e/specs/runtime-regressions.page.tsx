@@ -1875,7 +1875,19 @@ async function testCrossDocumentCompatMount() {
   // The iframe still provides an independent Window and Document without
   // relying on browser popup lifecycle policy.
   const documentHost = document.createElement("iframe");
-  documentHost.hidden = true;
+  // `display:none` browsing contexts can have their event loop frozen on
+  // shared headless Chromium runners. Keep the secondary Window rendered but
+  // move its 1px surface off-screen so its DocsAPI ready timer remains active.
+  Object.assign(documentHost.style, {
+    border: "0",
+    height: "1px",
+    left: "-10000px",
+    opacity: "0",
+    pointerEvents: "none",
+    position: "fixed",
+    top: "0",
+    width: "1px",
+  });
   documentHost.src = "about:blank";
   document.body.appendChild(documentHost);
   const popup = documentHost.contentWindow;
