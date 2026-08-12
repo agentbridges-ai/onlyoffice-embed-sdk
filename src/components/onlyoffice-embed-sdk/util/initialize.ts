@@ -47,14 +47,26 @@ function resetLoadedDocsApi(
   }
 }
 
-function preloadEditorFrame(ownerWindow: Window) {
-  const ownerDocument = ownerWindow.document;
-  if (
-    ownerDocument.querySelector(
-      `iframe[data-onlyoffice-preload="${STATIC_RESOURCE.onlyoffice.preloadHtml}"]`,
-    )
-  ) {
-    return;
+/**
+ * Explicitly warm the upstream editor runtime in an isolated iframe.
+ *
+ * This is intentionally opt-in. Hosted compatibility subframes load their
+ * DocsAPI and immutable runtime assets from one canonical origin so the
+ * browser HTTP cache is shared across zodiac hosts. Automatically inserting
+ * a cross-origin preload iframe in every host adds a redundant browsing
+ * context and process without improving that cache sharing.
+ */
+export function preloadOnlyOffice(ownerWindow?: Window) {
+  const targetWindow =
+    ownerWindow ?? (typeof window === "undefined" ? undefined : window);
+  if (!targetWindow) return null;
+
+  const ownerDocument = targetWindow.document;
+  const existing = ownerDocument.querySelector<HTMLIFrameElement>(
+    `iframe[data-onlyoffice-preload="${STATIC_RESOURCE.onlyoffice.preloadHtml}"]`,
+  );
+  if (existing) {
+    return existing;
   }
 
   const iframe = ownerDocument.createElement("iframe");
@@ -62,6 +74,7 @@ function preloadEditorFrame(ownerWindow: Window) {
   iframe.dataset.onlyofficePreload = STATIC_RESOURCE.onlyoffice.preloadHtml;
   iframe.className = "w-0 h-0 hidden absolute -z-10";
   ownerDocument.body.appendChild(iframe);
+  return iframe;
 }
 
 export async function initializeOnlyOffice(ownerWindow?: Window) {
@@ -83,8 +96,6 @@ export async function initializeOnlyOffice(ownerWindow?: Window) {
   state.apiUrl = apiUrl;
 
   state.promise = new Promise<void>((resolve, reject) => {
-    preloadEditorFrame(targetWindow);
-
     if (targetWindow.DocsAPI?.DocEditor) {
       resolve();
       return;

@@ -430,8 +430,16 @@ test("all 12 real fixed origins expose the exact compatibility handshake", async
 test("real package facade activates and controls the hosted child", async ({ page }) => {
   test.setTimeout(90_000);
   const staticResourceOrigins = new Set<string>();
+  let docsApiRequests = 0;
+  let preloadRequests = 0;
   page.on("request", (request) => {
     const url = new URL(request.url());
+    if (url.pathname.endsWith("/web-apps/apps/api/documents/api.js")) {
+      docsApiRequests += 1;
+    }
+    if (url.pathname.endsWith("/web-apps/apps/api/documents/preload.html")) {
+      preloadRequests += 1;
+    }
     if (
       url.pathname.endsWith("/web-apps/apps/api/documents/api.js") ||
       url.pathname.endsWith("/x2t.js") ||
@@ -461,4 +469,11 @@ test("real package facade activates and controls the hosted child", async ({ pag
   expect(status).toBe("passed");
   const canonicalOrigin = `${new URL(page.url()).protocol}//onlyoffice.localhost:${new URL(page.url()).port}`;
   expect(Array.from(staticResourceOrigins)).toEqual([canonicalOrigin]);
+  expect(docsApiRequests).toBeGreaterThan(0);
+  expect(preloadRequests).toBe(0);
+  expect(
+    page.frames().filter((frame) =>
+      frame.url().includes("/web-apps/apps/api/documents/preload"),
+    ),
+  ).toHaveLength(0);
 });

@@ -158,6 +158,13 @@ may override that value only with one of those canonical roots. Hashed bundles,
 the hosted build path, and tagged x2t files are immutable for one year;
 `/subframe` and `/api/version` remain `no-store`.
 
+Default initialization loads `api.js` directly and does not create a hidden
+`iframe[data-onlyoffice-preload]` on the canonical origin. This keeps the
+shared HTTP-cache benefit without adding one redundant canonical browsing
+context inside every zodiac host. Applications that deliberately want the
+upstream preload document may opt in by calling `preloadOnlyOffice()` before
+initialization; it is not part of the hosted compatibility path.
+
 File, Blob, ArrayBuffer, Uint8Array, URL, and empty-document inputs are
 supported. URL inputs are fetched in the parent window with `fetchOptions`
 before a copied buffer is transferred. The proxy keeps the existing
@@ -201,12 +208,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.3.1`, the expected identity is:
+application's release manifest. For SDK `0.3.2`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.3.1",
-  "hostBuildId": "onlyoffice-embed-sdk-hosted-v3",
+  "packageVersion": "0.3.2",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v4",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -262,7 +269,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.3.1`. The protected release workflow requires a GitHub-verified signed
+`sdk-v0.3.2`. The protected release workflow requires a GitHub-verified signed
 annotated tag on `main`, approval through the `npm-production` environment,
 and npm trusted publishing. It publishes the exact verified tarball with OIDC
 provenance; direct manual publication is not a supported release path.
