@@ -589,10 +589,12 @@ class CompatSubframeInstance implements OfficeEditorInstance {
     return this.mount.request("confirm-save-to-new-format", options) as Promise<boolean>;
   }
 
-  setInterfaceTheme(theme: OfficeInterfaceTheme): void {
-    void this.mount.request("set-theme", { theme }).catch((error) =>
+  setInterfaceTheme(theme: OfficeInterfaceTheme): Promise<void> {
+    const operation = this.mount.request("set-theme", { theme }).then(() => undefined);
+    void operation.catch((error) =>
       this.mount.reportError(toError(error), this),
     );
+    return operation;
   }
 
   setReadonly(readonly: boolean): void {

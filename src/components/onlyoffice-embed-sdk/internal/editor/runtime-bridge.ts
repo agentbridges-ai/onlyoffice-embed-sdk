@@ -622,6 +622,7 @@ export const CROSS_ORIGIN_BRIDGE_MESSAGE = {
 
 export const CROSS_ORIGIN_EDITOR_COMMAND = {
   EDITOR_SUBSCRIBE: "editor:subscribe",
+  INTERFACE_SET_THEME: "interface:set-theme",
   DOCUMENT_PRINT_PDF: "document:print-pdf",
   DOCUMENT_RENAME: "document:rename",
   COMMENT_ADD: "comment:add",

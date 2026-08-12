@@ -150,7 +150,12 @@ export interface OfficeEditorInstance {
   confirmSaveToNewFormat(
     options?: OfficeSaveToNewFormatConfirmationOptions,
   ): Promise<boolean>;
-  setInterfaceTheme(theme: OfficeInterfaceTheme): void;
+  /**
+   * Applies the interface theme in place when the hosted runtime supports its
+   * native theme controller. Existing callers may continue to ignore the
+   * returned Promise.
+   */
+  setInterfaceTheme(theme: OfficeInterfaceTheme): void | Promise<void>;
   setReadonly(readonly: boolean): void;
   /** Changes the editor language while preserving the current document. */
   setLanguage(lang: string): Promise<void>;
@@ -1132,15 +1137,16 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     }
   }
 
-  setInterfaceTheme(theme: OfficeInterfaceTheme): void {
+  setInterfaceTheme(theme: OfficeInterfaceTheme): Promise<void> {
     this.options.interfaceTheme = theme;
-    if (!this.destroyed && this.manager) {
-      void this.manager
-        .setTheme(interfaceThemeToOfficeTheme(theme))
-        .catch((error) =>
-          notifyOfficeEditorError(this.options.onError, toError(error), this),
-        );
+    if (this.destroyed || !this.manager) {
+      return Promise.resolve();
     }
+    const operation = this.manager.setTheme(interfaceThemeToOfficeTheme(theme));
+    void operation.catch((error) =>
+      notifyOfficeEditorError(this.options.onError, toError(error), this),
+    );
+    return operation;
   }
 
   async setLanguage(lang: string): Promise<void> {

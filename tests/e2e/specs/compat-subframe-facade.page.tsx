@@ -74,6 +74,18 @@ async function pauseForBrowserCacheProbe(stage: "rat" | "ox") {
   delete document.documentElement.dataset.onlyofficeCacheProbe;
 }
 
+async function pauseForThemeProbe(stage: "initial-dark" | "switched-light") {
+  if (new URLSearchParams(window.location.search).get("cacheProbe") !== "1") {
+    return;
+  }
+  document.documentElement.dataset.onlyofficeThemeProbe = stage;
+  await waitFor(
+    () => document.documentElement.dataset.onlyofficeThemeProbeResume === stage,
+    30_000,
+  );
+  delete document.documentElement.dataset.onlyofficeThemeProbe;
+}
+
 function localBase() {
   return `${window.location.protocol}//onlyoffice.localhost:${window.location.port}`;
 }
@@ -553,6 +565,7 @@ export async function runRealCompatSubframeActivationTests(
       hostUrl: hostUrl("rat"),
       emptyType: "docx",
       fileName: "Real_Activation.docx",
+      interfaceTheme: "dark",
       expectedHostIdentity: facade.HOSTED_COMPAT_SUBFRAME_IDENTITY,
       startupTimeoutMs: 75_000,
       requestTimeoutMs: 30_000,
@@ -569,6 +582,12 @@ export async function runRealCompatSubframeActivationTests(
       "real facade returned the wrong hosted identity",
     );
     await pauseForBrowserCacheProbe("rat");
+    await pauseForThemeProbe("initial-dark");
+  });
+  await run("real facade live interface theme", async () => {
+    assert(instance, "real facade instance is missing");
+    await instance.setInterfaceTheme("light");
+    await pauseForThemeProbe("switched-light");
   });
   await run("real facade PDF print", async () => {
     assert(instance, "real facade instance is missing");

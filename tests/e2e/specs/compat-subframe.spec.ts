@@ -542,6 +542,52 @@ test("real package facade activates and controls the hosted child", async ({ pag
     ratTimings.some((entry) => entry.decodedBodySize > 0),
     "rat editor did not expose canonical resource timing",
   ).toBeTruthy();
+  const waitForThemeProbe = async (stage: "initial-dark" | "switched-light") => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.dataset.onlyofficeThemeProbe ?? "",
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(stage);
+    const editorFrame = page.frames().find((frame) => {
+      const url = new URL(frame.url());
+      return (
+        url.hostname === "rat.onlyoffice.localhost" &&
+        url.pathname.endsWith("/web-apps/apps/documenteditor/main/index.html")
+      );
+    });
+    expect(editorFrame, `rat editor frame is missing during ${stage}`).toBeTruthy();
+    return editorFrame!;
+  };
+  const darkFrame = await waitForThemeProbe("initial-dark");
+  await expect
+    .poll(() => darkFrame.locator("body").getAttribute("class"), {
+      timeout: 10_000,
+    })
+    .toContain("theme-night");
+  const initialThemeNavigation = await darkFrame.evaluate(() => ({
+    timeOrigin: performance.timeOrigin,
+    href: location.href,
+  }));
+  await page.evaluate(() => {
+    document.documentElement.dataset.onlyofficeThemeProbeResume = "initial-dark";
+  });
+  const lightFrame = await waitForThemeProbe("switched-light");
+  await expect
+    .poll(() => lightFrame.locator("body").getAttribute("class"), {
+      timeout: 10_000,
+    })
+    .toContain("theme-white");
+  expect(await lightFrame.evaluate(() => performance.timeOrigin)).toBe(
+    initialThemeNavigation.timeOrigin,
+  );
+  expect(lightFrame.url()).toBe(initialThemeNavigation.href);
+  await page.evaluate(() => {
+    document.documentElement.dataset.onlyofficeThemeProbeResume = "switched-light";
+  });
   const oxTimings = await readCanonicalResourceTimings("ox");
   expect(
     oxTimings.some(
@@ -559,6 +605,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
   ) as Array<{ name: string; status: string; detail?: string }>;
   expect(steps, JSON.stringify(steps, null, 2)).toEqual([
     { name: "real facade activation and identity", status: "passed" },
+    { name: "real facade live interface theme", status: "passed" },
     { name: "real facade PDF print", status: "passed" },
     { name: "real facade readonly language destroy", status: "passed" },
     { name: "real facade legacy DOC activation", status: "passed" },
