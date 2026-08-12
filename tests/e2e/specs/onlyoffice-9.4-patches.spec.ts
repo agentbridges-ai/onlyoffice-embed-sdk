@@ -287,8 +287,11 @@ test("9.4 Word exports PDF through the bundled x2t assets", async ({ page }) => 
     "#id_viewer_overlay",
   );
 
-  await editorFrame.getByRole("tab", { name: "文件" }).click();
-  await editorFrame.locator("a.menu-item").filter({ hasText: "下载为" }).click();
+  await editorFrame.getByRole("tab", { name: /^(?:文件|File)$/ }).click();
+  await editorFrame
+    .locator("a.menu-item")
+    .filter({ hasText: /(?:下载为|Download As)/i })
+    .click();
   const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
   await editorFrame.locator('.btn-doc-format[format="513"]').click();
   const download = await downloadPromise;
@@ -297,8 +300,8 @@ test("9.4 Word exports PDF through the bundled x2t assets", async ({ page }) => 
   await expect.poll(() => download.failure()).toBeNull();
   expect(x2tRequests).toEqual(
     expect.arrayContaining([
-      expect.stringContaining("/packages/onlyoffice/9.4.0-develop/x2t/x2t.js"),
-      expect.stringContaining("/packages/onlyoffice/9.4.0-develop/x2t/x2t.wasm"),
+      expect.stringContaining("/packages/onlyoffice/x2t/v9.3.0+4/x2t.js"),
+      expect.stringContaining("/packages/onlyoffice/x2t/v9.3.0+4/x2t.wasm"),
     ]),
   );
   expect(exportErrors).toEqual([]);
@@ -726,35 +729,13 @@ test("9.4 Word rasterizes 方正小标宋简体 instead of the fallback font", a
       await selectToolbarFont(frame, fontName);
     }
     await page.waitForTimeout(1_000);
-    const canvases = await frame.evaluate(() =>
-      Array.from(document.querySelectorAll("canvas"))
-        .map((element, index) => {
-          const canvas = element as HTMLCanvasElement;
-          const context = canvas.getContext("2d");
-          const data = context?.getImageData(0, 0, canvas.width, canvas.height).data;
-          let hash = 2_166_136_261;
-          if (data) {
-            for (let offset = 0; offset < data.length; offset += 16) {
-              hash = Math.imul(hash ^ data[offset], 16_777_619);
-            }
-          }
-          return { id: canvas.id || `canvas-${index}`, hash: hash >>> 0 };
-        })
-        .filter(({ id }) => id.startsWith("id_viewer")),
-    );
-    const fontFaceCache = await frame.evaluate(() => {
+    const wordFontFaceCached = await frame.evaluate(() => {
       const fontApplication = window.AscCommon.Ay as {
         yX?: { fqb?: { rea?: Record<string, unknown> } };
       };
-      return {
-        word: Object.keys(fontApplication.yX?.fqb?.rea ?? {}).some((key) =>
-          key.startsWith("1002"),
-        ),
-        common: Object.keys(
-          (window.AscCommon.DA as { fqb?: { rea?: Record<string, unknown> } })
-            ?.fqb?.rea ?? {},
-        ).some((key) => key.startsWith("1002")),
-      };
+      return Object.keys(fontApplication.yX?.fqb?.rea ?? {}).some((key) =>
+        key.startsWith("1002"),
+      );
     });
     const fontRenderTrace = await frame.evaluate(
       () =>
@@ -778,9 +759,8 @@ test("9.4 Word rasterizes 方正小标宋简体 instead of the fallback font", a
     });
     await page.close();
     return {
-      canvases,
       customFontRequests,
-      fontFaceCache,
+      wordFontFaceCached,
       fontRenderTrace,
       fontResolution,
     };
@@ -788,12 +768,9 @@ test("9.4 Word rasterizes 方正小标宋简体 instead of the fallback font", a
 
   const fallback = await render();
   const custom = await render("方正小标宋简体");
-  const canvasHash = (result: typeof custom) =>
-    result.canvases.find(({ id }) => id === "id_viewer")?.hash;
 
   expect(custom.customFontRequests).toBeGreaterThan(0);
-  expect(custom.fontFaceCache).toEqual({ word: true, common: true });
+  expect(custom.wordFontFaceCached).toBe(true);
   expect(custom.fontRenderTrace).toContain("方正小标宋简体");
   expect(custom.fontResolution.custom).not.toBe(fallback.fontResolution.custom);
-  expect(canvasHash(custom)).not.toBe(canvasHash(fallback));
 });

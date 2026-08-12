@@ -127,6 +127,7 @@ async function testX2tWorkerLifecycle() {
       workers.push(worker);
       return worker as unknown as Worker;
     },
+    isolateEachConversion: false,
     workerReadyTimeoutMs: 100,
     requestTimeoutMs: 100,
   });
@@ -204,6 +205,7 @@ async function testX2tQueueAndTimeout() {
       workers.push(worker);
       return worker as unknown as Worker;
     },
+    isolateEachConversion: false,
     workerReadyTimeoutMs: 100,
     requestTimeoutMs: 100,
   });
@@ -242,6 +244,7 @@ async function testX2tQueueAndTimeout() {
       timeoutWorkers.push(next);
       return next as unknown as Worker;
     },
+    isolateEachConversion: false,
     workerReadyTimeoutMs: 100,
     requestTimeoutMs: 20,
   });
@@ -271,6 +274,41 @@ async function testX2tQueueAndTimeout() {
     "converter did not recover after a timed-out Worker",
   );
   timeoutConverter.terminate();
+}
+
+async function testX2tIsolatedWorkers() {
+  const workers: FakeWorker[] = [];
+  const converter = new X2tConverter({
+    workerFactory: () => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker as unknown as Worker;
+    },
+    workerReadyTimeoutMs: 100,
+    requestTimeoutMs: 100,
+  });
+
+  const convert = async (seed: number, workerIndex: number) => {
+    const conversion = converter.convert(createConvertParams(seed));
+    const worker = await waitFor(() => workers[workerIndex]);
+    worker.emit({ type: "ready" });
+    const request = await waitFor(() => worker.requests[0]);
+    worker.emit({
+      id: request.message.id,
+      type: "convert:done",
+      payload: createConvertResult(seed),
+    });
+    assert(
+      (await conversion).output?.[0] === seed,
+      "isolated conversion returned the wrong output",
+    );
+    assert(worker.terminated, "completed conversion kept its Worker alive");
+  };
+
+  await convert(70, 0);
+  assert(!converter.isInitialized, "completed conversion retained WASM state");
+  await convert(80, 1);
+  assert(workers.length === 2, "conversions reused a process-global WASM module");
 }
 
 async function testEditorServerLatestWins() {
@@ -1137,6 +1175,116 @@ async function testCompatibilityFacadeContracts() {
   }
 }
 
+async function testNativeEditorConfiguration() {
+  const popup = window.open(
+    "about:blank",
+    `onlyoffice-native-config-${Date.now()}`,
+    "popup,width=640,height=480",
+  );
+  assert(popup, "native-config popup Window was blocked");
+
+  const container = popup.document.createElement("div");
+  container.id = `native-config-host-${Date.now()}`;
+  popup.document.body.appendChild(container);
+
+  type CapturedConfig = {
+    type?: string;
+    document?: { permissions?: Record<string, boolean> };
+    editorConfig?: {
+      mode?: string;
+      embedded?: { autostart?: string; toolbarDocked?: string };
+      customization?: Record<string, unknown>;
+    };
+    events?: { onDocumentReady?: () => void };
+  };
+  const capturedConfigs: CapturedConfig[] = [];
+
+  class FakeDocEditor {
+    static version() {
+      return "native-config-fake";
+    }
+
+    private readonly iframe: HTMLIFrameElement;
+
+    constructor(id: string | undefined, config: CapturedConfig) {
+      const host = popup.document.getElementById(id ?? "");
+      if (!host) throw new Error("native-config DocsAPI received the wrong container");
+      capturedConfigs.push(config);
+      this.iframe = popup.document.createElement("iframe");
+      this.iframe.name = "frameEditor";
+      this.iframe.srcdoc = "<!doctype html><title>fake embedded viewer</title>";
+      host.appendChild(this.iframe);
+      popup.setTimeout(() => config.events?.onDocumentReady?.(), 0);
+    }
+
+    downloadAs() {}
+
+    destroyEditor() {
+      this.iframe.remove();
+    }
+  }
+
+  popup.DocsAPI = {
+    DocEditor: FakeDocEditor as unknown as DocEditorConstructor,
+  };
+  const mount = mountOfficeEditor(container, {
+    hostUrl: "https://host.example/office-host.html",
+    emptyType: "docx",
+    mode: "preview",
+    interfaceTheme: "dark",
+    spellcheck: true,
+  });
+
+  try {
+    const instance = await mount.activate();
+    const config = capturedConfigs[0];
+    assert(config, "native DocsAPI configuration was not captured");
+    const permissions = config.document?.permissions;
+    const customization = config.editorConfig?.customization;
+    assert(
+      config.type === "embedded" &&
+        config.editorConfig?.mode === "view" &&
+        config.editorConfig.embedded?.autostart === "document" &&
+        config.editorConfig.embedded.toolbarDocked === "top",
+      "preview did not use the upstream embedded/view shell",
+    );
+    assert(
+      permissions?.edit === false &&
+        permissions.download === false &&
+        permissions.print === true,
+      "preview permissions did not preserve native printing or fail closed",
+    );
+    assert(
+      customization?.uiTheme === "theme-dark" &&
+        customization.spellcheck === true,
+      "native theme or spellcheck customization was not forwarded",
+    );
+    assert(
+      !Object.prototype.hasOwnProperty.call(customization, "logo"),
+      "native ONLYOFFICE logo was replaced by a custom runtime URL",
+    );
+
+    instance.setReadonly(false);
+    const editConfig = await waitFor(() => capturedConfigs[1]);
+    assert(
+      editConfig.type === "desktop" &&
+        editConfig.editorConfig?.mode === "edit" &&
+        editConfig.document?.permissions?.edit === true,
+      "preview-to-edit did not remount the upstream desktop editor shell",
+    );
+    instance.setReadonly(true);
+    const returnedPreviewConfig = await waitFor(() => capturedConfigs[2]);
+    assert(
+      returnedPreviewConfig.type === "embedded" &&
+        returnedPreviewConfig.editorConfig?.mode === "view",
+      "readonly did not return the compatibility instance to native preview",
+    );
+  } finally {
+    await mount.destroy();
+    popup.close();
+  }
+}
+
 async function testCompatibilityNativeOutputCallbacks() {
   const popup = window.open(
     "about:blank",
@@ -1174,6 +1322,17 @@ async function testCompatibilityNativeOutputCallbacks() {
       this.iframe.name = "frameEditor";
       this.iframe.srcdoc = "<!doctype html><title>fake editor</title>";
       host.appendChild(this.iframe);
+      const editorWindow = this.iframe.contentWindow as Window & {
+        Asc?: { editor?: { asc_nativeGetPDF?: () => Uint8Array } };
+      };
+      editorWindow.Asc = {
+        editor: {
+          asc_nativeGetPDF: () =>
+            new TextEncoder().encode(
+              "%PDF-1.7\n% compatibility print regression\n",
+            ),
+        },
+      };
       dispatchDocumentStateChange = config.events?.onDocumentStateChange;
       popup.setTimeout(() => config.events?.onDocumentReady?.(), 0);
     }
@@ -1433,7 +1592,9 @@ async function testCompatibilityNativeOutputCallbacks() {
     );
 
     converter.convert = async (params) => ({
-      output: new Uint8Array(params.data.slice(0)),
+      output: params.fileTo.toLowerCase().endsWith(".pdf")
+        ? new TextEncoder().encode("%PDF-1.7\n% compatibility print regression\n")
+        : new Uint8Array(params.data.slice(0)),
       media: {},
     });
     converterPatched = true;
@@ -1478,6 +1639,79 @@ async function testCompatibilityNativeOutputCallbacks() {
         !dirtyChanges.slice(copyDirtyChangeStart).includes(false),
       "exportCopy acknowledged persistence or cleared the dirty revision",
     );
+
+    const originalPopupOpen = popup.open;
+    let printPopup: Window | null = null;
+    let printCalls = 0;
+    popup.open = function (url, target, features) {
+      printPopup = originalPopupOpen.call(popup, url, target, features);
+      if (printPopup) {
+        Object.defineProperty(printPopup, "print", {
+          configurable: true,
+          value: () => {
+            printCalls += 1;
+          },
+        });
+      }
+      return printPopup;
+    } as typeof popup.open;
+    try {
+      const printedFile = await instance.print();
+      const printedHeader = new TextDecoder("ascii").decode(
+        (await printedFile.arrayBuffer()).slice(0, 5),
+      );
+      assert(
+        printedFile.name.endsWith(".pdf") &&
+          printedHeader === "%PDF-" &&
+          printCalls === 1,
+        "inline print bridge did not print the exported PDF exactly once",
+      );
+      assert(
+        instance.getState().dirty,
+        "printing a copy incorrectly persisted the edited document",
+      );
+
+      printPopup?.close();
+      printPopup = null;
+      const fallbackObserver = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (
+              node.nodeType !== Node.ELEMENT_NODE ||
+              (node as Element).tagName !== "IFRAME"
+            ) {
+              continue;
+            }
+            const frame = node as HTMLIFrameElement;
+            frame.addEventListener("load", () => {
+              const frameWindow = frame.contentWindow;
+              if (!frameWindow) return;
+              Object.defineProperty(frameWindow, "print", {
+                configurable: true,
+                value: () => {
+                  printCalls += 1;
+                },
+              });
+            });
+          }
+        }
+      });
+      fallbackObserver.observe(popup.document.body, { childList: true });
+      popup.open = () => null;
+      try {
+        const fallbackFile = await instance.print();
+        assert(
+          fallbackFile.name.endsWith(".pdf") && Number(printCalls) === 2,
+          "popup-blocked printing did not use the hidden PDF frame",
+        );
+      } finally {
+        fallbackObserver.disconnect();
+      }
+    } finally {
+      popup.open = originalPopupOpen;
+      printPopup?.close();
+      handleDownloadAs = undefined;
+    }
 
     let signalCaptureStarted: (() => void) | undefined;
     const captureStarted = new Promise<void>((resolve) => {
@@ -1812,12 +2046,14 @@ async function testCrossDocumentCompatMount() {
 const regressionTests = [
   ["x2t worker lifecycle", testX2tWorkerLifecycle],
   ["x2t queue and timeout", testX2tQueueAndTimeout],
+  ["x2t isolated workers", testX2tIsolatedWorkers],
   ["editor server latest wins", testEditorServerLatestWins],
   ["cross-origin bridge isolation", testBridgeIsolation],
   ["bridge lifecycle races", testBridgeLifecycleRaces],
   ["plugin config proxy allowlist", testPluginConfigProxyAllowlist],
   ["Editor.bin source detection", testEditorBinDetection],
   ["compatibility facade contracts", testCompatibilityFacadeContracts],
+  ["native preview print logo configuration", testNativeEditorConfiguration],
   [
     "compatibility native output callbacks",
     testCompatibilityNativeOutputCallbacks,

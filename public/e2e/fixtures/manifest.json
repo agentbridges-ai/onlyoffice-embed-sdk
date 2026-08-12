@@ -1,37 +1,58 @@
 [
   {
+    "name": "example-title-ole.doc",
+    "kind": "positive",
+    "fileType": "DOC",
+    "source": "Nexolyra Example Title legacy OLE document regression",
+    "size": 98816,
+    "sha256": "d85e44ae5368ccbbe57ded8533ced05a250c30cfa15da10f19fdaf63f080238c"
+  },
+  {
+    "name": "pivot-slicer-showcase.xlsx",
+    "kind": "positive",
+    "fileType": "XLSX",
+    "source": "Nexolyra Native PivotTable and Slicer regression",
+    "size": 331122,
+    "sha256": "ffecc0a33c9e41b392fbee30127a97f3e5c3577c717be103471460bd07c2ec58"
+  },
+  {
     "name": "edge-invalid-bookmark.docx",
     "kind": "positive",
     "fileType": "DOCX",
     "source": "#29 / PR #30 invalid DingTalk DOCX bookmark",
-    "size": 3591
+    "size": 3592,
+    "sha256": "3c80bb7d185128541535228cdb47b7556c5edeb75301ca6fecbd6b2d7171b510"
   },
   {
     "name": "xml-limit.docx",
     "kind": "negative",
     "fileType": "DOCX",
     "source": "#34 configurable Office XML size guard",
-    "size": 44452
+    "size": 44453,
+    "sha256": "12f1e93e87c129e9f0660acb8ff696d1def8bd5fe6707937716bc9f2c951847d"
   },
   {
     "name": "mismatch-xlsx-as-docx.docx",
     "kind": "negative",
     "fileType": "DOCX",
     "source": "extension/content mismatch rejection",
-    "size": 6524
+    "size": 6525,
+    "sha256": "95518ab9d229f2eb59c73bc368c6ceec41cf7e911a654d1b7c087be3069c5762"
   },
   {
     "name": "plain-text-as-docx.docx",
     "kind": "positive",
     "fileType": "DOCX",
     "source": "plain text content with DOCX extension fallback",
-    "size": 14
+    "size": 14,
+    "sha256": "f8b625d9916a703ff789794c08791ded8ee275fb9ab4ad3f681d130e7dfa70df"
   },
   {
     "name": "plain-text-as-xlsx.xlsx",
     "kind": "positive",
     "fileType": "XLSX",
     "source": "plain text content with XLSX extension fallback",
-    "size": 15
+    "size": 15,
+    "sha256": "94968c462035eb103629777e893e8844b0569915e6b89091232a2fefef857dca"
   }
 ]

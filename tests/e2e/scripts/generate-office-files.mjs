@@ -1,10 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.join(__dirname, "..", "files");
+const publicOutputDir = path.join(__dirname, "..", "..", "..", "public", "e2e", "fixtures");
 const encoder = new TextEncoder();
+
+function readCommittedRegressionFixture(name) {
+  const filePath = path.join(outputDir, name);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Missing committed Office regression fixture: ${filePath}`);
+  }
+  return fs.readFileSync(filePath);
+}
 
 const crcTable = (() => {
   const table = new Uint32Array(256);
@@ -292,6 +302,20 @@ function xlsx() {
 
 const fixtures = [
   {
+    name: "example-title-ole.doc",
+    data: readCommittedRegressionFixture("example-title-ole.doc"),
+    kind: "positive",
+    fileType: "DOC",
+    source: "Nexolyra Example Title legacy OLE document regression",
+  },
+  {
+    name: "pivot-slicer-showcase.xlsx",
+    data: readCommittedRegressionFixture("pivot-slicer-showcase.xlsx"),
+    kind: "positive",
+    fileType: "XLSX",
+    source: "Nexolyra Native PivotTable and Slicer regression",
+  },
+  {
     name: "edge-invalid-bookmark.docx",
     data: docx({ invalidBookmark: true }),
     kind: "positive",
@@ -341,10 +365,16 @@ fs.writeFileSync(
     fixtures.map(({ data, ...fixture }) => ({
       ...fixture,
       size: data.length,
+      sha256: createHash("sha256").update(data).digest("hex"),
     })),
     null,
     2,
   ),
 );
 
-console.log(`Generated ${fixtures.length} Office fixtures in ${outputDir}`);
+fs.rmSync(publicOutputDir, { recursive: true, force: true });
+fs.cpSync(outputDir, publicOutputDir, { recursive: true });
+
+console.log(
+  `Generated ${fixtures.length} Office fixtures in ${outputDir} and ${publicOutputDir}`,
+);

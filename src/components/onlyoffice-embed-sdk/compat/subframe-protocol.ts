@@ -66,6 +66,7 @@ export type CompatSubframeAction =
   | "save"
   | "save-as"
   | "download"
+  | "print"
   | "confirm-save-to-new-format"
   | "get-state"
   | "get-host-identity"
@@ -167,6 +168,7 @@ const ACTIONS = new Set<string>([
   "save",
   "save-as",
   "download",
+  "print",
   "confirm-save-to-new-format",
   "get-state",
   "get-host-identity",

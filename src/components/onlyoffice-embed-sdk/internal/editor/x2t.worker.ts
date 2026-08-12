@@ -861,7 +861,11 @@ function writeInputs({
     m_sThemeDir: "/working/themes",
     m_sFileTo: fileTo,
     m_bIsPDFA: formatTo === AvsFileType.AVS_FILE_CROSSPLATFORM_PDFA,
-    m_bIsNoBase64: usePdfBinPath ? false : true,
+    // The maintained x2t WASM release and the native editor readers use the
+    // base64-backed Canvas container.  Keeping this false also preserves
+    // PivotTable/Slicer records which were dropped by the experimental v10
+    // no-base64 serializer shipped with the previous site assets.
+    m_bIsNoBase64: false,
     m_sFontDir: "/working/fonts/",
     m_sTempDir: "/tmp/x2t-conversion",
   };
@@ -1002,36 +1006,6 @@ async function convert({
       csvDelimiter,
       csvDelimiterChar,
     });
-
-    if (
-      fileFrom.endsWith(".doc") ||
-      formatFrom == AvsFileType.AVS_FILE_DOCUMENT_DOC
-    ) {
-      const viaPath = fromPath + ".docx";
-      if (viaPath === toPath) {
-        throw new Error(
-          "x2t DOC intermediate path must differ from the target path",
-        );
-      }
-      if (x2t.FS.analyzePath(viaPath).exists) {
-        x2t.FS.unlink(viaPath);
-      }
-      writeInputs({
-        fileFrom: fromPath,
-        fileTo: viaPath,
-        formatFrom: AvsFileType.AVS_FILE_DOCUMENT_DOC,
-        formatTo: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
-        data: null as never,
-      });
-      executeConversion(fileFrom, `${fileFrom}.docx`);
-      writeInputs({
-        fileFrom: viaPath,
-        fileTo: toPath,
-        formatFrom: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
-        formatTo,
-        data: null as never,
-      });
-    }
 
     if (x2t.FS.analyzePath(toPath).exists) {
       x2t.FS.unlink(toPath);

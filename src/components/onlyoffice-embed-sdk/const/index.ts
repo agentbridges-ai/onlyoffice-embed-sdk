@@ -1,4 +1,5 @@
 import { DocumentType } from "../internal/editor/types";
+import { ONLYOFFICE_X2T_RELEASE } from "../compat/version";
 
 // ── 编辑器容器 / 事件 ──────────────────────────────────────────
 
@@ -76,16 +77,6 @@ export const OFFICE_XML_EVENT_CONFIG = {
 /** Asc.c_oAscRestrictionType（sdk-all-min.js: k.Mf / k.Hca） */
 export const ASC_RESTRICTION_NONE = 0;
 export const ASC_RESTRICTION_VIEW = 128;
-
-/** OnlyOffice 编辑器左上角 logo（jsDelivr 固定版本，避免依赖站点本地资源） */
-export const OFFICE_EDITOR_LOGO = {
-  /** 浅色主题：Office 品牌色图标 */
-  image:
-    "https://cdn.jsdelivr.net/npm/simple-icons@9.21.0/icons/microsoftoffice.svg",
-  /** 深色主题：同图标（品牌色在深色背景上同样清晰） */
-  imageDark:
-    "https://cdn.jsdelivr.net/npm/simple-icons@9.21.0/icons/microsoftoffice.svg",
-} as const;
 
 // ── 静态资源（SDK / x2t）────────────────────────────────────────
 
@@ -181,11 +172,26 @@ export const X2T_PDF_FONT_MANIFEST = [
 /** 与 public/packages/onlyoffice 下的 Document Server 导出目录保持一致。 */
 const DEFAULT_ONLYOFFICE_VERSION = "9.4.0-develop";
 const DEFAULT_ONLYOFFICE_ROOT = `/packages/onlyoffice/${DEFAULT_ONLYOFFICE_VERSION}`;
+const DEFAULT_X2T_RELEASE_TAG = ONLYOFFICE_X2T_RELEASE.tag;
+const DEFAULT_X2T_ROOT = `/packages/onlyoffice/x2t/${DEFAULT_X2T_RELEASE_TAG}`;
 
 let staticResourceOptions: OnlyOfficeStaticResourceOptions | null = null;
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
+}
+
+function isLocalOfficeSubframeOrigin(value: string) {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname;
+    return (
+      hostname === "onlyoffice.localhost" ||
+      hostname.endsWith(".onlyoffice.localhost")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function buildStaticResource(): StaticResource {
@@ -198,7 +204,9 @@ function buildStaticResource(): StaticResource {
   const onlyofficeRoot = cdnOrigin
     ? `${cdnOrigin}/onlyoffice/${onlyofficeVersion}`
     : DEFAULT_ONLYOFFICE_ROOT;
-  const x2tRoot = `${onlyofficeRoot}/x2t`;
+  const x2tRoot = cdnOrigin
+    ? `${cdnOrigin}${isLocalOfficeSubframeOrigin(cdnOrigin) ? "/packages" : ""}/onlyoffice/x2t/${DEFAULT_X2T_RELEASE_TAG}`
+    : DEFAULT_X2T_ROOT;
   const x2tPdfFontsRoot = `${onlyofficeRoot}/x2t-fonts`;
 
   return {

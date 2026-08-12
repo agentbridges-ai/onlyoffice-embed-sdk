@@ -45,7 +45,7 @@ const manager = await OnlyOfficeManager.createWithFile(
 
 ### 静态资源地址运行时注册
 
-OnlyOffice SDK、x2t、PDF 字体等静态资源默认从 `public/packages` 加载。需要在运行时切到 CDN 或独立静态服务器时，可在创建编辑器前注册资源地址。
+OnlyOffice SDK、独立版本化的 x2t 与 PDF 字体默认从 `public/packages` 加载。需要在运行时切到 CDN 或独立静态服务器时，可在创建编辑器前注册资源地址。
 
 ```typescript
 import {
@@ -80,7 +80,7 @@ OnlyOfficeManager.resetStaticResource();
 type OnlyOfficeStaticResourceOptions = {
   /** CDN packages 根地址，例如 https://onlyoffice-embed-resource.pages.dev */
   cdnOrigin?: string | null;
-  /** CDN 的 SDK 版本；默认当前 9.4 SDK */
+  /** CDN 的编辑器 SDK 版本；不会切换独立锁定的 x2t release */
   onlyofficeVersion?: string | null;
 };
 ```

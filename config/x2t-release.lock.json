@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "repository": "agentbridges-ai/onlyoffice-x2t-wasm",
+  "tag": "v9.3.0+4",
+  "sourceCommit": "5790fda684ac1a837f1ab92fcaaf4a0de9ec4ec1",
+  "releaseUrl": "https://github.com/agentbridges-ai/onlyoffice-x2t-wasm/releases/tag/v9.3.0+4",
+  "signerWorkflow": "agentbridges-ai/onlyoffice-x2t-wasm/.github/workflows/build-release.yml@refs/tags/v9.3.0+4",
+  "toolchain": {
+    "onlyofficeCore": "v9.3.0.140",
+    "emscripten": "4.0.11",
+    "linkerFlags": [
+      "-sALLOW_MEMORY_GROWTH",
+      "-sEMULATE_FUNCTION_POINTER_CASTS=1",
+      "-sEXPORTED_FUNCTIONS=_main1"
+    ]
+  },
+  "parameters": {
+    "isNoBase64": false,
+    "usesRealInputFileName": true,
+    "tempDirectory": "/tmp/x2t-conversion",
+    "docFormatFrom": 66,
+    "docFormatTo": 8193,
+    "spreadsheetFormatFrom": 257,
+    "spreadsheetFormatTo": 8194
+  },
+  "archive": {
+    "size": 33804956,
+    "sha256": "94dd84fa067ebed4fde5763bd5592cb506ac61c3cd3c54cec84953535fb6c5c5",
+    "sha512": "3c551eb1848c3ae911158edb5407bbfa6a69642e0a906ac478dee577f7ecdfa94c84cca49744bae68d6d1d934f330e8f731f31def99279707fce26749310bb53"
+  },
+  "regressionLog": {
+    "size": 881,
+    "sha256": "3d4bfb99f2841b1f31538079a87ffd88ec8ccb512e87d566230c6307c0112f1a",
+    "sha512": "7e43dd0e409c9f86e47f060a3ef18f3d5c06623c9cebefe429477c2fd99e7d23e8a2c376965ebca6a8a308b6e6eaa7e42f00c749b49d231858b71b8bb1391432"
+  },
+  "files": {
+    "script": {
+      "size": 140773,
+      "sha256": "e2f79cf6b71d10a7b5db695dcb4043afb1c5e0412520201bf71d6f12f97648d7",
+      "sha512": "dc019f2c1a9574b807455ea50fdd6d413d89ccd2d6d3971722465d601bd805b92bd2f3714c353acebf18d7e7fb1a2a74265907fe42e5c7d4fc80c610d486df09"
+    },
+    "scriptBrotli": {
+      "size": 33400,
+      "sha256": "e8f1ebbe466ffc2553c93a0a9c59a93099d505b8e477c543a28e8af8f1c702a7",
+      "sha512": "d3a9e2a42c2fabd70c3a6a2b843489b2ae21a83f3a1a29c76772ee18124e8eb305f2c7190c96635123613d43becb8863de3787337e80ee6b8641571f09e540a3"
+    },
+    "wasmRaw": {
+      "size": 38793185,
+      "sha256": "68d225de76693d0341531b44fc24a2f9a8e0f06aa4c3d903399cb32a8008d5e7",
+      "sha512": "18ef073b8939d8cbdc0b46aeb2b8fd31943470ff397f29c1beaba39fc9849b2ddee662c09e60a7c1d8e1e34720cc353cb1d0e06aa8ad0eeb05065046b6866ab5"
+    },
+    "wasmBrotli": {
+      "size": 6958639,
+      "sha256": "b0701d6c3e7708ab297649586adf7a52230aed0fef5998eaa8b35abb5c7424b5",
+      "sha512": "fa4821da1a9472a9943b7330fe71d4b9980b5d5e8a1d76d72f2cacf5eb2bd4d3133b8ffd13fc567908bf4a0e46d8ef5657a0a3f95834c3a129e4532be48576a7"
+    }
+  },
+  "regressions": {
+    "legacyDoc": {
+      "inputSha256": "d85e44ae5368ccbbe57ded8533ced05a250c30cfa15da10f19fdaf63f080238c",
+      "outputSha256": "074a9b350ff6a6e1ee32866c03416a0682c05635cdb8f3f60b6e4a02eaad9a2a",
+      "outputSize": 132030,
+      "header": "DOCY;v5;"
+    },
+    "pivotSlicer": {
+      "inputSha256": "ffecc0a33c9e41b392fbee30127a97f3e5c3577c717be103471460bd07c2ec58",
+      "outputSha256": "c40fb3f4f67311426110d4786eb4684981aec9ed05b4f13c6367c8470de4d89e",
+      "outputSize": 85138,
+      "header": "XLSY;v2;"
+    }
+  },
+  "deployment": {
+    "directory": "public/packages/onlyoffice/x2t/v9.3.0+4"
+  }
+}

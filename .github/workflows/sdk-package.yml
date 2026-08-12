@@ -9,9 +9,14 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "packages/onlyoffice-embed-sdk/**"
+      - "config/x2t-release.lock.json"
+      - "public/packages/onlyoffice/x2t/**"
+      - "scripts/verify-x2t-release.mjs"
       - "scripts/verify-sdk-package.mjs"
       - "src/components/onlyoffice-embed-sdk/**"
+      - "src/features/compat-subframe/**"
       - "src/app/e2e/**"
+      - "tests/e2e/specs/compat-subframe.*"
       - "tests/e2e/specs/runtime-regressions.*"
       - "tests/e2e/specs/onlyoffice-assets.*"
       - "tests/e2e/specs/onlyoffice-factory.*"
@@ -26,9 +31,14 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "packages/onlyoffice-embed-sdk/**"
+      - "config/x2t-release.lock.json"
+      - "public/packages/onlyoffice/x2t/**"
+      - "scripts/verify-x2t-release.mjs"
       - "scripts/verify-sdk-package.mjs"
       - "src/components/onlyoffice-embed-sdk/**"
+      - "src/features/compat-subframe/**"
       - "src/app/e2e/**"
+      - "tests/e2e/specs/compat-subframe.*"
       - "tests/e2e/specs/runtime-regressions.*"
       - "tests/e2e/specs/onlyoffice-assets.*"
       - "tests/e2e/specs/onlyoffice-factory.*"
@@ -74,6 +84,9 @@ jobs:
       - name: Install repository dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify immutable x2t release
+        run: pnpm verify:x2t
+
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
@@ -86,6 +99,7 @@ jobs:
       - name: Run focused runtime regressions
         run: >-
           pnpm exec playwright test
+          tests/e2e/specs/compat-subframe.spec.ts
           tests/e2e/specs/runtime-regressions.spec.ts
           tests/e2e/specs/onlyoffice-assets.spec.ts
           tests/e2e/specs/onlyoffice-factory.spec.ts

@@ -5,14 +5,9 @@ conversion, and managing editor lifecycle without a Document Server.
 
 ## Install
 
-After the first protected npm release:
-
 ```sh
 pnpm add @agentbridges-ai/onlyoffice-embed-sdk
 ```
-
-Until then, use the repository's verified `.tgz` build artifact; the nested
-workspace package is not a supported Git dependency.
 
 The npm package contains JavaScript, TypeScript declarations, and a
 self-contained x2t Worker. It deliberately does not contain the large
@@ -47,8 +42,12 @@ const manager = await OnlyOfficeManager.createWithFile(
 );
 ```
 
-Without `cdnOrigin`, assets are read from
-`/packages/onlyoffice/9.4.0-develop` on the consuming application's origin.
+Without `cdnOrigin`, editor UI assets are read from
+`/packages/onlyoffice/9.4.0-develop` and the converter from the immutable
+`/packages/onlyoffice/x2t/v9.3.0+4` path on the consuming application's origin.
+`onlyofficeVersion` never selects the converter build. Import
+`ONLYOFFICE_X2T_RELEASE` from `/compat` to inspect the signed source commit,
+toolchain, raw/compressed asset hashes, and real DOC/Pivot regression identity.
 
 The x2t Worker is inlined so installed packages work after both Vite and Bun
 browser builds. A restrictive Content Security Policy must allow
@@ -93,8 +92,8 @@ runtime. The following differences are intentional:
   fetch that manifest or verify any remote asset bytes. Without it, the
   fallback digest covers only the package version and resource URL
   coordinates.
-- `spellcheck` is accepted for source compatibility while the hardened embed
-  runtime keeps its own spellcheck policy.
+- `spellcheck` is forwarded to the native editor customization while runtime
+  language changes remain instance-scoped.
 - Native UI Save Copy As and Download As results are converted to `File`
   objects and delivered to `onSaveAs` and `onDownload`, respectively. When a
   callback is absent, the facade falls back to a browser download, matching
@@ -109,9 +108,14 @@ runtime. The following differences are intentional:
   offline install, per-font install, planning, repair, update, pause, and
   resume operations throw `OfficeRuntimeResourceCompatibilityError`.
 - `confirmSaveToNewFormat()` uses the browser confirmation dialog.
+- The SDK does not inject or port a custom preview/edit toggle into upstream
+  ONLYOFFICE bundles. `mode` and `setReadonly()` only select the native
+  desktop/embedded configuration; host applications own any mode controls.
 
-New integrations should prefer the native root entry. The `/compat` entry is
-for controlled migration.
+Integrations that require host-origin isolation must use
+`@agentbridges-ai/onlyoffice-embed-sdk/compat/subframe`. The root and `/compat`
+entries are direct-embed APIs and intentionally do not create the outer
+cross-origin iframe.
 
 ### Isolated compatibility subframes
 
@@ -151,9 +155,11 @@ supported. URL inputs are fetched in the parent window with `fetchOptions`
 before a copied buffer is transferred. The proxy keeps the existing
 `invokePlugin`, `save`, `confirmSaveToNewFormat`, read-only/theme controls,
 callbacks, state, identity, and destroy APIs. It additionally exposes
-`setLanguage`, `saveAs`, and `download`; the latter two are explicit SDK
-extensions, while native menu output still arrives through `onSaveAs` and
-`onDownload`.
+`setLanguage`, `saveAs`, `download`, and `print`; print synchronously reserves
+the parent-window print surface, exports a PDF without marking the current
+document persisted, invokes the browser print flow in that parent surface, and
+returns the same `File`. Native menu output still arrives through `onSaveAs`
+and `onDownload`.
 
 Each active editor needs a different slot origin. A slot can be reused only
 after its previous mount has been destroyed. Hosted subframes and all static
@@ -174,7 +180,9 @@ with this direct-embed runtime. Do not copy its `packageVersion`,
 
 If the release process uses an immutable runtime-asset manifest, produce one
 canonical JSON manifest containing the path, byte size, and SHA-256 of every
-deployed ONLYOFFICE SDK, x2t, WASM, and font asset. Serialize that manifest
+deployed ONLYOFFICE SDK and font asset. The hosted SDK identity additionally
+binds the independently signed x2t release tag, source commit, and compressed
+and raw WASM digests. Serialize that manifest
 once, deploy the exact bytes beside the assets, and hash those bytes without
 parsing or reformatting them. The SDK does not fetch or interpret this file;
 the deployment pipeline is responsible for validating its entries and for
@@ -185,12 +193,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.2.0`, the expected identity is:
+application's release manifest. For SDK `0.3.0`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.2.0",
-  "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
+  "packageVersion": "0.3.0",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v2",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -246,18 +254,10 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.2.0`. Before the first real release, an organization owner must:
-
-1. Publish a minimal `@agentbridges-ai/onlyoffice-embed-sdk@0.0.0` placeholder
-   with `npm publish --access public --tag bootstrap`. Do not manually publish
-   the real release version.
-2. Configure npm trusted publishing for this repository, the
-   `.github/workflows/publish-npm.yml` workflow, and the `npm-production`
-   environment.
-3. Create that GitHub environment with required reviewers, and protect `main`
-   plus `sdk-v*` tag creation with repository rules.
-4. Push a GitHub-verified signed annotated `sdk-v0.2.0` tag. The workflow then
-   verifies and publishes the exact checked tarball with npm OIDC provenance.
+`sdk-v0.3.0`. The protected release workflow requires a GitHub-verified signed
+annotated tag on `main`, approval through the `npm-production` environment,
+and npm trusted publishing. It publishes the exact verified tarball with OIDC
+provenance; direct manual publication is not a supported release path.
 
 Prerelease versions are intentionally rejected; add an explicit dist-tag
 policy before enabling them.

@@ -338,9 +338,33 @@ async function testFacadeActionsAndCallbacks() {
       const saved = await instance.save("pdf");
       const savedAs = await instance.saveAs("docx");
       const downloaded = await instance.download("xlsx");
+      const originalOpen = window.open;
+      let printCalls = 0;
+      window.open = function (url, target, features) {
+        const printWindow = originalOpen.call(window, url, target, features);
+        if (printWindow) {
+          Object.defineProperty(printWindow, "print", {
+            configurable: true,
+            value: () => {
+              printCalls += 1;
+            },
+          });
+        }
+        return printWindow;
+      } as typeof window.open;
+      let printed: File;
+      try {
+        printed = await instance.print();
+      } finally {
+        window.open = originalOpen;
+      }
       assert(saved.name === "output.pdf", "save targetExt was not forwarded");
       assert(savedAs.name === "output.docx", "saveAs targetExt was not forwarded");
       assert(downloaded.name === "output.xlsx", "download targetExt was not forwarded");
+      assert(
+        printed.name === "output.pdf" && printCalls === 1,
+        "print PDF was not returned through the parent print window",
+      );
       assert(await instance.confirmSaveToNewFormat({ dontshow: true }), "confirm RPC failed");
       assert(
         JSON.stringify(callbacks) === JSON.stringify(["save-as", "save", "save-as", "download"]),
@@ -480,6 +504,17 @@ export async function runRealCompatSubframeActivationTests(
       "real facade returned the wrong hosted identity",
     );
   });
+  await run("real facade PDF print", async () => {
+    assert(instance, "real facade instance is missing");
+    const pdf = await instance.print();
+    const header = new TextDecoder("ascii").decode(
+      (await pdf.arrayBuffer()).slice(0, 5),
+    );
+    assert(
+      pdf.name.toLowerCase().endsWith(".pdf") && header === "%PDF-",
+      "real compat subframe did not return printable PDF bytes",
+    );
+  });
   await run("real facade readonly language destroy", async () => {
     assert(instance, "real facade instance is missing");
     instance.setReadonly(true);
@@ -489,6 +524,43 @@ export async function runRealCompatSubframeActivationTests(
     assert(instance.getState().destroyed, "real facade did not settle destroyed state");
     assert(facade().getActiveOfficeEditorCount() === 0, "real facade leaked its active mount");
     container?.remove();
+  });
+  await run("real facade legacy DOC activation", async () => {
+    const facade = await loadFacade();
+    const response = await fetch("/e2e/fixtures/example-title-ole.doc");
+    assert(response.ok, "legacy DOC fixture request failed");
+    const file = new File([await response.arrayBuffer()], "Example Title.doc", {
+      type: "application/msword",
+    });
+    const legacyContainer = makeContainer();
+    let legacyInstance: OfficeEditorInstance | undefined;
+    try {
+      legacyInstance = await facade.createOfficeEditor(legacyContainer, {
+        hostUrl: hostUrl("ox"),
+        file,
+        expectedHostIdentity: facade.HOSTED_COMPAT_SUBFRAME_IDENTITY,
+        startupTimeoutMs: 75_000,
+        requestTimeoutMs: 30_000,
+        destroyTimeoutMs: 10_000,
+      });
+      assert(
+        legacyInstance.getState().status === "ready" &&
+          legacyInstance.getState().fileName === "Example Title.doc",
+        "legacy DOC did not reach ready through the hosted facade",
+      );
+      const exported = await legacyInstance.saveAs("docx");
+      assert(
+        exported.name.toLowerCase().endsWith(".docx") && exported.size > 0,
+        "legacy DOC did not export a non-empty DOCX through the hosted facade",
+      );
+    } finally {
+      await legacyInstance?.destroy();
+      legacyContainer.remove();
+    }
+    assert(
+      facade.getActiveOfficeEditorCount() === 0,
+      "legacy DOC hosted facade leaked its active mount",
+    );
   });
   return steps;
 }
