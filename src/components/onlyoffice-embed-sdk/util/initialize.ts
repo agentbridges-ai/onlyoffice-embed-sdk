@@ -82,7 +82,10 @@ export async function initializeOnlyOffice(ownerWindow?: Window) {
     ownerWindow ?? (typeof window === "undefined" ? undefined : window);
   if (!targetWindow) return;
 
-  const apiUrl = STATIC_RESOURCE.onlyoffice.apiUrl;
+  // DocsAPI derives frameEditor.src from its own script URL. Hosted zodiac
+  // subframes therefore load this small shell entry from their own origin;
+  // the editor HTML supplies a canonical <base> for the immutable assets.
+  const apiUrl = STATIC_RESOURCE.onlyoffice.frameApiUrl;
   const state = getInitializeState(targetWindow);
 
   if (state.promise && state.apiUrl === apiUrl) {

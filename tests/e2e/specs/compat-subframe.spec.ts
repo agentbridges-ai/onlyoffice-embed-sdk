@@ -429,29 +429,126 @@ test("all 12 real fixed origins expose the exact compatibility handshake", async
 
 test("real package facade activates and controls the hosted child", async ({ page }) => {
   test.setTimeout(90_000);
-  const staticResourceOrigins = new Set<string>();
+  const docsApiOrigins = new Set<string>();
+  const x2tOrigins = new Set<string>();
+  const editorFrameOrigins = new Set<string>();
+  const hostedAssetOrigins = new Set<string>();
+  const zodiacAssetStatuses: number[] = [];
+  let canonicalAssetResponses = 0;
   let docsApiRequests = 0;
   let preloadRequests = 0;
   page.on("request", (request) => {
     const url = new URL(request.url());
     if (url.pathname.endsWith("/web-apps/apps/api/documents/api.js")) {
       docsApiRequests += 1;
+      docsApiOrigins.add(url.origin);
     }
     if (url.pathname.endsWith("/web-apps/apps/api/documents/preload.html")) {
       preloadRequests += 1;
     }
+    if (url.pathname.endsWith("/x2t.js") || url.pathname.endsWith("/x2t.wasm")) {
+      x2tOrigins.add(url.origin);
+    }
     if (
-      url.pathname.endsWith("/web-apps/apps/api/documents/api.js") ||
-      url.pathname.endsWith("/x2t.js") ||
-      url.pathname.endsWith("/x2t.wasm")
+      url.pathname.endsWith("/web-apps/apps/documenteditor/main/index.html") &&
+      url.searchParams.get("frameEditorId") === "onlyoffice-compat-subframe-editor"
     ) {
-      staticResourceOrigins.add(url.origin);
+      editorFrameOrigins.add(url.origin);
+    }
+    if (
+      url.pathname.includes("/onlyoffice/runtime/") &&
+      !url.pathname.endsWith("/web-apps/apps/api/documents/api.js") &&
+      !url.pathname.endsWith("/web-apps/apps/documenteditor/main/index.html")
+    ) {
+      hostedAssetOrigins.add(url.origin);
+    }
+  });
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+    if (
+      !url.pathname.includes("/onlyoffice/runtime/") ||
+      url.pathname.endsWith("/web-apps/apps/api/documents/api.js") ||
+      url.pathname.endsWith("/web-apps/apps/documenteditor/main/index.html")
+    ) {
+      return;
+    }
+    if (url.hostname === "onlyoffice.localhost") {
+      canonicalAssetResponses += 1;
+    } else if (url.hostname.endsWith(".onlyoffice.localhost")) {
+      zodiacAssetStatuses.push(response.status());
     }
   });
   await page.goto(
-    "/e2e/runtime-regressions?harness=real-compat-subframe",
+    "/e2e/runtime-regressions?harness=real-compat-subframe&cacheProbe=1",
     { waitUntil: "domcontentloaded" },
   );
+  const appPort = new URL(page.url()).port;
+  const canonicalOrigin = `${new URL(page.url()).protocol}//onlyoffice.localhost:${appPort}`;
+  const readCanonicalResourceTimings = async (slot: "rat" | "ox") => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.dataset.onlyofficeCacheProbe ?? "",
+          ),
+        { timeout: 75_000 },
+      )
+      .toBe(slot);
+    await expect
+      .poll(
+        () =>
+          page.frames().filter((frame) => {
+            const url = new URL(frame.url());
+            return (
+              url.hostname === `${slot}.onlyoffice.localhost` &&
+              url.pathname.endsWith(
+                "/web-apps/apps/documenteditor/main/index.html",
+              )
+            );
+          }).length,
+        { timeout: 10_000 },
+      )
+      .toBe(1);
+    const editorFrame = page.frames().find((frame) => {
+      const url = new URL(frame.url());
+      return (
+        url.hostname === `${slot}.onlyoffice.localhost` &&
+        url.pathname.endsWith(
+          "/web-apps/apps/documenteditor/main/index.html",
+        )
+      );
+    });
+    expect(editorFrame, `${slot} editor frame is missing`).toBeTruthy();
+    const timings = await editorFrame!.evaluate((origin) =>
+      performance
+        .getEntriesByType("resource")
+        .filter((entry) => entry.name.startsWith(origin))
+        .map((entry) => {
+          const resource = entry as PerformanceResourceTiming;
+          return {
+            name: resource.name,
+            decodedBodySize: resource.decodedBodySize,
+            transferSize: resource.transferSize,
+          };
+        }), canonicalOrigin);
+    await page.evaluate((stage) => {
+      document.documentElement.dataset.onlyofficeCacheProbeResume = stage;
+    }, slot);
+    return timings;
+  };
+
+  const ratTimings = await readCanonicalResourceTimings("rat");
+  expect(
+    ratTimings.some((entry) => entry.decodedBodySize > 0),
+    "rat editor did not expose canonical resource timing",
+  ).toBeTruthy();
+  const oxTimings = await readCanonicalResourceTimings("ox");
+  expect(
+    oxTimings.some(
+      (entry) => entry.decodedBodySize > 0 && entry.transferSize === 0,
+    ),
+    "ox editor did not reuse a canonical resource from browser cache",
+  ).toBeTruthy();
   await expect(page.getByTestId("real-compat-facade-status")).toHaveText(
     /passed|failed/,
     { timeout: 80_000 },
@@ -467,8 +564,23 @@ test("real package facade activates and controls the hosted child", async ({ pag
     { name: "real facade legacy DOC activation", status: "passed" },
   ]);
   expect(status).toBe("passed");
-  const canonicalOrigin = `${new URL(page.url()).protocol}//onlyoffice.localhost:${new URL(page.url()).port}`;
-  expect(Array.from(staticResourceOrigins)).toEqual([canonicalOrigin]);
+  expect(Array.from(docsApiOrigins).sort()).toEqual([
+    `http://ox.onlyoffice.localhost:${new URL(page.url()).port}`,
+    `http://rat.onlyoffice.localhost:${new URL(page.url()).port}`,
+  ]);
+  expect(Array.from(editorFrameOrigins).sort()).toEqual([
+    `http://ox.onlyoffice.localhost:${new URL(page.url()).port}`,
+    `http://rat.onlyoffice.localhost:${new URL(page.url()).port}`,
+  ]);
+  expect(Array.from(hostedAssetOrigins).sort()).toEqual([
+    canonicalOrigin,
+    `http://ox.onlyoffice.localhost:${new URL(page.url()).port}`,
+    `http://rat.onlyoffice.localhost:${new URL(page.url()).port}`,
+  ]);
+  expect(canonicalAssetResponses).toBeGreaterThan(0);
+  expect(zodiacAssetStatuses.length).toBeGreaterThan(0);
+  expect(new Set(zodiacAssetStatuses)).toEqual(new Set([308]));
+  expect(Array.from(x2tOrigins)).toEqual([canonicalOrigin]);
   expect(docsApiRequests).toBeGreaterThan(0);
   expect(preloadRequests).toBe(0);
   expect(

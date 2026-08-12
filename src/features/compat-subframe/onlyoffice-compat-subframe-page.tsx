@@ -384,6 +384,7 @@ export function OnlyOfficeCompatSubframePage() {
       try {
         registerOnlyOfficeStaticResource({
           cdnOrigin: payload.resourceOrigin,
+          frameOrigin: window.location.origin,
           onlyofficeVersion: ONLYOFFICE_RESOURCE_VERSION,
           onlyofficePath: `/onlyoffice/runtime/${ONLYOFFICE_EMBED_HOST_BUILD_ID}`,
           assetManifestDigest: ONLYOFFICE_EMBED_HOST_ASSET_DIGEST,

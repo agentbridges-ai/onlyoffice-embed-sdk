@@ -87,10 +87,14 @@ export type StaticResource = {
     x2t: string;
   };
   onlyoffice: {
+    /** Canonical immutable asset root shared by all hosted subframes. */
     root: string;
+    /** Root used to load DocsAPI and derive the real frameEditor URL. */
+    frameRoot: string;
     apiJs: string;
     preloadHtml: string;
     apiUrl: string;
+    frameApiUrl: string;
     preloadUrl: string;
   };
   x2t: {
@@ -112,6 +116,13 @@ export type OnlyOfficeStaticResourceOptions = {
   onlyofficeVersion?: string | null;
   /** CDN 上已版本化的完整运行时路径，例如 /onlyoffice/runtime/<build-id>。 */
   onlyofficePath?: string | null;
+  /**
+   * Optional origin for DocsAPI and the frameEditor document shell.
+   * Static editor assets continue to use cdnOrigin. This lets an isolated
+   * host keep its real editor browsing context same-origin without giving up
+   * the canonical cross-host browser cache.
+   */
+  frameOrigin?: string | null;
   /** 由部署/发布流程声明的资源清单 SHA-256；SDK 仅校验格式并用于 identity 比较。 */
   assetManifestDigest?: string | null;
 };
@@ -209,6 +220,14 @@ function buildStaticResource(): StaticResource {
       ? `${cdnOrigin}${configuredPath}`
       : `${cdnOrigin}/onlyoffice/${onlyofficeVersion}`
     : DEFAULT_ONLYOFFICE_ROOT;
+  const frameOrigin = staticResourceOptions?.frameOrigin
+    ? trimTrailingSlash(staticResourceOptions.frameOrigin)
+    : "";
+  const frameRoot = frameOrigin
+    ? configuredPath
+      ? `${frameOrigin}${configuredPath}`
+      : `${frameOrigin}/onlyoffice/${onlyofficeVersion}`
+    : onlyofficeRoot;
   const x2tRoot = cdnOrigin
     ? `${cdnOrigin}${isLocalOfficeSubframeOrigin(cdnOrigin) ? "/packages" : ""}/onlyoffice/x2t/${DEFAULT_X2T_RELEASE_TAG}`
     : DEFAULT_X2T_ROOT;
@@ -221,9 +240,11 @@ function buildStaticResource(): StaticResource {
     },
     onlyoffice: {
       root: onlyofficeRoot,
+      frameRoot,
       apiJs,
       preloadHtml,
       apiUrl: onlyofficeRoot + apiJs,
+      frameApiUrl: frameRoot + apiJs,
       preloadUrl: onlyofficeRoot + preloadHtml,
     },
     x2t: {
@@ -257,6 +278,24 @@ export function registerOnlyOfficeStaticResource(
   ) {
     throw new Error("onlyofficePath must be a safe absolute URL path");
   }
+  if (options.frameOrigin) {
+    let frameOrigin: URL;
+    try {
+      frameOrigin = new URL(options.frameOrigin);
+    } catch {
+      throw new Error("frameOrigin must be an HTTP(S) origin");
+    }
+    if (
+      !/^https?:$/.test(frameOrigin.protocol) ||
+      frameOrigin.username ||
+      frameOrigin.password ||
+      frameOrigin.pathname !== "/" ||
+      frameOrigin.search ||
+      frameOrigin.hash
+    ) {
+      throw new Error("frameOrigin must be an HTTP(S) origin");
+    }
+  }
   staticResourceOptions = { ...options, assetManifestDigest: digest };
   staticResourceCache = null;
   return getStaticResource();
@@ -286,7 +325,7 @@ export function getStaticResource(): StaticResource {
 export function isOnlyOfficeCdnMode(
   ownerWindow?: Pick<Window, "location">,
 ): boolean {
-  const root = getStaticResource().onlyoffice.root;
+  const root = getStaticResource().onlyoffice.frameRoot;
   const targetWindow =
     ownerWindow ?? (typeof window === "undefined" ? undefined : window);
   if (!/^https?:\/\//i.test(root) || !targetWindow) {
