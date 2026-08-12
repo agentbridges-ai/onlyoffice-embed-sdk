@@ -40,6 +40,7 @@ import {
   type CompatSubframeResponse,
   type CompatSubframeSerializedError,
 } from "./subframe-protocol";
+import { openOfficePrintWindow, printOfficePdfFile } from "./print";
 
 export * from "./subframe-protocol";
 export {
@@ -447,6 +448,7 @@ function isValidActionResult(action: CompatSubframeAction, value: unknown) {
     case "save":
     case "save-as":
     case "download":
+    case "print":
       return isFileLike(value);
     case "confirm-save-to-new-format":
       return typeof value === "boolean";
@@ -541,6 +543,10 @@ class CompatSubframeInstance implements OfficeEditorInstance {
 
   exportCopy(targetExt?: string): Promise<File> {
     return this.mount.request("save-as", { targetExt }) as Promise<File>;
+  }
+
+  print(): Promise<File> {
+    return this.mount.print();
   }
 
   confirmSaveToNewFormat(
@@ -733,6 +739,26 @@ class CompatSubframeMount implements OfficeEditorMount {
 
   get canReturnToPreview() {
     return this.options.canReturnToPreview === true;
+  }
+
+  async print(): Promise<File> {
+    const printWindow = openOfficePrintWindow(
+      this.ownerWindow,
+      this.container.ownerDocument,
+    );
+    try {
+      const file = (await this.request("print")) as File;
+      await printOfficePdfFile({
+        ownerWindow: this.ownerWindow,
+        ownerDocument: this.container.ownerDocument,
+        file,
+        printWindow,
+      });
+      return file;
+    } catch (error) {
+      printWindow?.close();
+      throw error;
+    }
   }
 
   activate(): Promise<OfficeEditorInstance> {

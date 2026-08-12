@@ -18,6 +18,7 @@ import { initializeOnlyOffice } from "../util/initialize";
 import { convertBinToDocument } from "../util/x2t";
 import type { OnlyOfficeLang } from "../store/lang";
 import { OfficePluginBridge } from "./plugin-bridge";
+import { openOfficePrintWindow, printOfficePdfFile } from "./print";
 import {
   ONLYOFFICE_EMBED_HOST_BUILD_ID,
   ONLYOFFICE_EMBED_SDK_VERSION,
@@ -84,7 +85,7 @@ export interface CreateOfficeEditorOptions {
   mode?: OfficeEditorMode;
   readonly?: boolean;
   canReturnToPreview?: boolean;
-  /** Accepted for typing compatibility; embed-sdk keeps its hardened spellcheck policy. */
+  /** Initial native spellcheck policy. */
   spellcheck?: boolean;
   interfaceTheme?: OfficeInterfaceTheme;
   lang?: string;
@@ -144,6 +145,8 @@ export interface OfficeEditorInstance {
   save(targetExt?: string): Promise<File>;
   /** Export a copy without marking the current document as persisted. */
   exportCopy(targetExt?: string): Promise<File>;
+  /** Export the current document as PDF, invoke the browser print flow, and return that PDF. */
+  print(): Promise<File>;
   confirmSaveToNewFormat(
     options?: OfficeSaveToNewFormatConfirmationOptions,
   ): Promise<boolean>;
@@ -773,6 +776,8 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
           container: this.container,
           editorManager: this.manager,
           readOnly: this.state.readonly,
+          mode: this.state.mode,
+          spellcheck: this.options.spellcheck,
           lang: this.options.lang,
           theme: interfaceThemeToOfficeTheme(
             this.options.interfaceTheme,
@@ -943,6 +948,57 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     return operation;
   }
 
+  async print(): Promise<File> {
+    if (this.destroyed || !this.manager || this.state.status !== "ready") {
+      throw new Error("Editor is not open");
+    }
+    if (this.savePromise) {
+      throw new Error("A save request is already in progress for this editor");
+    }
+    const printWindow = openOfficePrintWindow(
+      this.ownerWindow,
+      this.container.ownerDocument,
+    );
+    try {
+      const file = await this.exportPrintPdfFile();
+      await printOfficePdfFile({
+        ownerWindow: this.ownerWindow,
+        ownerDocument: this.container.ownerDocument,
+        file,
+        printWindow,
+      });
+      return file;
+    } catch (error) {
+      printWindow?.close();
+      throw error;
+    }
+  }
+
+  async exportPrintPdfFile(): Promise<File> {
+    if (this.destroyed || !this.manager || this.state.status !== "ready") {
+      throw new Error("Editor is not open");
+    }
+    if (this.savePromise) {
+      throw new Error("A save request is already in progress for this editor");
+    }
+    const manager = this.manager;
+    let operation: Promise<File>;
+    operation = (async () => {
+      const bytes = await manager.exportPrintPdf();
+      const baseName = this.state.fileName.replace(/\.[^.]*$/, "") || "document";
+      return makeFile(
+        this.ownerWindow,
+        [bytes],
+        `${baseName}.pdf`,
+        "application/pdf",
+      );
+    })().finally(() => {
+      if (this.savePromise === operation) this.savePromise = null;
+    });
+    this.savePromise = operation;
+    return operation;
+  }
+
   private async saveInternal(manager: EditorManager, targetExt?: string) {
     // export() clears EditorManager.dirty before the consumer persistence
     // callback settles. Preserve the pre-save dirty state so the 100ms poll
@@ -1063,6 +1119,10 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
   }
 
   setReadonly(readonly: boolean): void {
+    const previous = {
+      readonly: this.state.readonly,
+      mode: this.state.mode,
+    };
     const mode =
       this.returnsToPreview && readonly
         ? "preview"
@@ -1071,7 +1131,12 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
           : "edit";
     this.updateState({ readonly, mode });
     if (!this.destroyed && this.manager) {
-      void this.manager.setReadOnly(readonly).catch((error) => {
+      const changesShell = previous.mode === "preview" || mode === "preview";
+      const operation = changesShell
+        ? this.manager.setMode(mode)
+        : this.manager.setReadOnly(readonly);
+      void operation.catch((error) => {
+        this.updateState(previous);
         notifyOfficeEditorError(this.options.onError, toError(error), this);
       });
     }

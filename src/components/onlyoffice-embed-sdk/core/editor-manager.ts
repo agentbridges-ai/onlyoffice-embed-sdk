@@ -45,7 +45,6 @@ import {
   ONLYOFFICE_ID,
   ASC_RESTRICTION_NONE,
   ASC_RESTRICTION_VIEW,
-  OFFICE_EDITOR_LOGO,
   type OfficeXmlEventConfig,
 } from "../const";
 import {
@@ -84,6 +83,10 @@ export type CreateEditorViewOptions = {
   loader?: (url: string) => Promise<ArrayBuffer>;
   fileType?: string;
   readOnly?: boolean;
+  /** Public compatibility mode; preview uses the native embedded viewer shell. */
+  mode?: "edit" | "readonly" | "preview";
+  /** Initial native spellcheck policy. */
+  spellcheck?: boolean;
   user?: User;
   lang?: string;
   containerId?: string;
@@ -115,6 +118,7 @@ type OnlyOfficeSdkApi = {
   ra?: { Ghj?: () => void };
   asc_registerCallback?: (type: string, fn: AscWordApiCallback) => void;
   asc_unregisterCallback?: (type: string, fn: AscWordApiCallback) => void;
+  asc_nativeGetPDF?: (options?: Record<string, unknown>) => Uint8Array;
   asc_addComment?: (data: CommentData) => string | undefined;
   asc_changeComment?: (id: string, data: CommentData) => void;
   asc_removeComment?: (id: string) => void;
@@ -190,6 +194,8 @@ export class EditorManager {
    */
   private dirtyRevision = 0;
   private readOnly = false;
+  private editorMode: "edit" | "readonly" | "preview" = "edit";
+  private spellcheck = false;
   private editorLang: OnlyOfficeLang = getOnlyOfficeLang();
   private uiTheme: OfficeTheme = "theme-white";
   private plugins?: OnlyOfficePluginOptions;
@@ -662,22 +668,37 @@ export class EditorManager {
 
   private getDocumentPermissions(editing: boolean) {
     const doc = this.server.getDocument();
+    const preview = this.editorMode === "preview";
     return {
       edit: editing && doc.fileType !== "pdf",
+      download: !preview,
       chat: false,
       rename: editing,
       protect: editing,
       // 允许接受/拒绝文档内已有修订；不自动进入「修订」录制模式
       review: true,
-      print: false,
+      print: true,
     };
   }
 
   /** 关闭 autosave 与保存按钮；保存快捷键由 installSaveShortcutBlocker 拦截。 */
   private buildEditorCustomization() {
+    const preview = this.editorMode === "preview";
+    const documentType = getDocumentType(this.fileType);
+    const zoom =
+      !preview &&
+      (documentType === DocumentType.Word || documentType === DocumentType.Slide)
+        ? -2
+        : undefined;
     return {
       uiTheme: this.uiTheme,
       autosave: false,
+      help: false,
+      about: false,
+      hideRightMenu: true,
+      compactToolbar: true,
+      zoom,
+      spellcheck: this.spellcheck,
       layout: {
         header: {
           save: false,
@@ -700,14 +721,15 @@ export class EditorManager {
           : {}),
       },
       features: {
+        featuresTips: false,
         spellcheck: {
           change: false,
         },
       },
       plugins: Boolean(this.plugins?.configUrls.length),
-      logo: {
-        image: OFFICE_EDITOR_LOGO.image,
-        imageDark: OFFICE_EDITOR_LOGO.imageDark,
+      anonymous: {
+        request: false,
+        label: "Local User",
       },
     };
   }
@@ -1663,19 +1685,30 @@ export class EditorManager {
         key: doc.key,
         title: doc.title,
         url: doc.url,
-        permissions: this.getDocumentPermissions(true),
+        permissions: this.getDocumentPermissions(
+          this.editorMode !== "preview",
+        ),
       },
       documentType,
       editorConfig: {
+        // Readonly keeps the native desktop editor shell and is enforced by
+        // asc_setRestriction after documentReady. Preview alone uses the
+        // upstream embedded viewer shell.
+        mode: this.editorMode === "preview" ? "view" : "edit",
         lang: this.editorLang,
+        canCoAuthoring: false,
         coEditing: {
-          mode: "fast",
+          mode: "strict",
           change: false,
         },
         user: {
           ...user,
         },
         customization: this.buildEditorCustomization(),
+        embedded:
+          this.editorMode === "preview"
+            ? { autostart: "document", toolbarDocked: "top" }
+            : undefined,
         plugins: this.plugins?.configUrls.length
           ? {
               pluginsData: this.pluginConfigUrls,
@@ -1732,7 +1765,7 @@ export class EditorManager {
           // Required so DocsAPI.downloadAs can request the current editor binary.
         },
       },
-      type: "desktop",
+      type: this.editorMode === "preview" ? "embedded" : "desktop",
       width: "100%",
       height: "100%",
     });
@@ -1920,6 +1953,9 @@ export class EditorManager {
       containerId = options.container.id || containerId;
     }
     this.readOnly = !!options.readOnly;
+    this.editorMode =
+      options.mode ?? (this.readOnly ? "readonly" : "edit");
+    this.spellcheck = options.spellcheck ?? false;
     this.revisionReviewMode = !!options.revisionReview;
     this.downloadOutputHandler = options.onDownloadOutput;
     this.server.setOfficeXmlEventConfig(options.officeXmlEvent);
@@ -2025,6 +2061,60 @@ export class EditorManager {
     return this.createExportData(snapshot);
   }
 
+  /** Render the live editor model through ONLYOFFICE's native PDF pipeline. */
+  async exportPrintPdf() {
+    let raw: unknown;
+    if (this.isCdnMode()) {
+      raw = await callCrossOriginEditor(
+        this.containerId,
+        CROSS_ORIGIN_EDITOR_COMMAND.DOCUMENT_PRINT_PDF,
+        {},
+        60_000,
+        this.getOwnerWindow(),
+      );
+    } else {
+      const frameWindow = this.getEditorFrameWindow() as
+        | (OnlyOfficeWindow & {
+            native?: { Save_End?: (...args: unknown[]) => void };
+          })
+        | undefined;
+      const api = frameWindow?.Asc?.editor;
+      if (!frameWindow || !api?.asc_nativeGetPDF) {
+        throw new Error("OnlyOffice native PDF API is not available");
+      }
+      const previousNative = frameWindow.native;
+      frameWindow.native = {
+        ...previousNative,
+        Save_End: previousNative?.Save_End ?? (() => undefined),
+      };
+      try {
+        raw = api.asc_nativeGetPDF({ isPrint: true });
+      } finally {
+        if (previousNative) frameWindow.native = previousNative;
+        else delete frameWindow.native;
+      }
+    }
+    let bytes: Uint8Array;
+    if (raw instanceof Uint8Array) {
+      bytes = raw;
+    } else if (raw instanceof ArrayBuffer) {
+      bytes = new Uint8Array(raw);
+    } else if (ArrayBuffer.isView(raw)) {
+      bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+    } else {
+      throw new Error("OnlyOffice native PDF API is not available");
+    }
+    let header = new TextDecoder("ascii").decode(bytes.subarray(0, 5));
+    if (header !== "%PDF-") {
+      bytes = await this.server.convertPrintRendererToPdf(bytes);
+      header = new TextDecoder("ascii").decode(bytes.subarray(0, 5));
+    }
+    if (header !== "%PDF-") {
+      throw new Error("OnlyOffice print pipeline did not produce a PDF");
+    }
+    return bytes.slice();
+  }
+
   getUser(): User {
     return this.server.getUser();
   }
@@ -2066,6 +2156,37 @@ export class EditorManager {
 
   getReadOnly() {
     return this.readOnly;
+  }
+
+  /**
+   * Switch between the upstream desktop editor and embedded preview shells.
+   * This is a programmatic compatibility API only; it does not inject the
+   * custom preview/edit toggle used by older browser-host implementations.
+   */
+  async setMode(mode: "edit" | "readonly" | "preview") {
+    const readOnly = mode !== "edit";
+    if (this.editorMode === mode && this.readOnly === readOnly) {
+      return;
+    }
+    if (!this.editor) {
+      this.editorMode = mode;
+      this.readOnly = readOnly;
+      return;
+    }
+
+    onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
+      loading: true,
+    });
+    try {
+      await this.captureDocumentIfDirty();
+      this.editorMode = mode;
+      this.readOnly = readOnly;
+      this.remountDocEditor();
+    } finally {
+      onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
+        loading: false,
+      });
+    }
   }
 
   async setLanguage(lang: OnlyOfficeLang) {

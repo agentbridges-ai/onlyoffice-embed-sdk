@@ -2,14 +2,14 @@
 /**
  * 将原始 TTF/OTF 转为 OnlyOffice public/fonts/{id} catalog 线格式。
  *
- * 源文件默认放在本脚本同目录（onlyoffice-comp/scripts/fonts/），例如 1000.ttf；
+ * 源文件默认放在本脚本同目录（onlyoffice-embed-sdk/scripts/fonts/），例如 1000.ttf；
  * 产物写入 public/packages/onlyoffice/9.4.0-develop/fonts/{id}。
  *
  * 用法:
  *   pnpm font:catalog -- --id 1000 --verify
- *   node onlyoffice-comp/scripts/fonts/ttf-to-catalog-font.mjs --id 1000
- *   node onlyoffice-comp/scripts/fonts/ttf-to-catalog-font.mjs ./其它路径/font.ttf --id 1000
- *   node onlyoffice-comp/scripts/fonts/ttf-to-catalog-font.mjs --decode --id 1000
+ *   node onlyoffice-embed-sdk/scripts/fonts/ttf-to-catalog-font.mjs --id 1000
+ *   node onlyoffice-embed-sdk/scripts/fonts/ttf-to-catalog-font.mjs ./其它路径/font.ttf --id 1000
+ *   node onlyoffice-embed-sdk/scripts/fonts/ttf-to-catalog-font.mjs --decode --id 1000
  */
 
 import fs from "node:fs";
@@ -34,7 +34,7 @@ function printUsage() {
 用法:
   编码（TTF/OTF → catalog 线格式）:
     pnpm font:catalog -- --id <fileId> [--verify]
-    node onlyoffice-comp/scripts/fonts/ttf-to-catalog-font.mjs --id 1000
+    node onlyoffice-embed-sdk/scripts/fonts/ttf-to-catalog-font.mjs --id 1000
 
     未指定输入文件时，从工作目录读取 <id>.ttf / <id>.otf：
       ${DEFAULT_WORKSPACE_DIR}/
@@ -48,7 +48,7 @@ function printUsage() {
 
 选项:
   --id <id>           OnlyOffice 字体文件 id（输出文件名，无扩展名）
-  --workspace <dir>   源字体目录（默认: onlyoffice-comp/scripts/fonts）
+  --workspace <dir>   源字体目录（默认: onlyoffice-embed-sdk/scripts/fonts）
   --out <path>        输出路径（编码默认: public/packages/onlyoffice/9.4.0-develop/fonts/<id>）
   --fonts-dir <dir>   同 --out 的目录别名（编码产物目录）
   --allfonts <path>   AllFonts.js 路径

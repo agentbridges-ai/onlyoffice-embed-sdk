@@ -181,6 +181,14 @@ const fakeChildHtml = String.raw`<!doctype html>
         }
         return;
       }
+      if (message.action === "print") {
+        respond(message, true, new File(
+          [new TextEncoder().encode("%PDF-1.7\n% compat subframe regression\n")],
+          "output.pdf",
+          { type: "application/pdf" },
+        ));
+        return;
+      }
       if (message.action === "destroy") {
         state = state ? { ...state, status: "destroyed", destroyed: true } : state;
         respond(message, true, null);
@@ -432,7 +440,9 @@ test("real package facade activates and controls the hosted child", async ({ pag
   ) as Array<{ name: string; status: string; detail?: string }>;
   expect(steps, JSON.stringify(steps, null, 2)).toEqual([
     { name: "real facade activation and identity", status: "passed" },
+    { name: "real facade PDF print", status: "passed" },
     { name: "real facade readonly language destroy", status: "passed" },
+    { name: "real facade legacy DOC activation", status: "passed" },
   ]);
   expect(status).toBe("passed");
 });

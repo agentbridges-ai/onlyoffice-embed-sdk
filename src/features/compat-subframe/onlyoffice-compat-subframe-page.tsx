@@ -200,8 +200,10 @@ function validateActionPayload(request: CompatSubframeRequest) {
     case "save":
     case "save-as":
     case "download":
+    case "print":
       return payload === undefined ||
-        (isRecord(payload) && isTargetExtension(payload.targetExt));
+        (request.action !== "print" &&
+          isRecord(payload) && isTargetExtension(payload.targetExt));
     case "confirm-save-to-new-format":
       return payload === undefined ||
         (isRecord(payload) &&
@@ -497,6 +499,12 @@ export function OnlyOfficeCompatSubframePage() {
           return runExplicitOutput("save-as", payload?.targetExt as string | undefined);
         case "download":
           return runExplicitOutput("download", payload?.targetExt as string | undefined);
+        case "print":
+          return (
+            requireInstance() as OfficeEditorInstance & {
+              exportPrintPdfFile(): Promise<File>;
+            }
+          ).exportPrintPdfFile();
         case "confirm-save-to-new-format":
           return requireInstance().confirmSaveToNewFormat(
             request.payload as Parameters<OfficeEditorInstance["confirmSaveToNewFormat"]>[0],
@@ -564,6 +572,7 @@ export function OnlyOfficeCompatSubframePage() {
         request.action === "save" ||
         request.action === "save-as" ||
         request.action === "download" ||
+        request.action === "print" ||
         request.action === "invoke-plugin";
       const execution = mayHaveExternalSideEffects
         ? actionPromise

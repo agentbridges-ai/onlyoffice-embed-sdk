@@ -3,12 +3,14 @@ import { expect, test } from "playwright/test";
 const expectedSteps = [
   "x2t worker lifecycle",
   "x2t queue and timeout",
+  "x2t isolated workers",
   "editor server latest wins",
   "cross-origin bridge isolation",
   "bridge lifecycle races",
   "plugin config proxy allowlist",
   "Editor.bin source detection",
   "compatibility facade contracts",
+  "native preview print logo configuration",
   "compatibility native output callbacks",
   "cross-document compat mount",
 ];
@@ -39,7 +41,7 @@ test("runtime regression contracts", async ({ page }) => {
       );
     },
     expectedSteps.length,
-    // The page executes ten heavyweight browser/runtime checks serially. CI
+    // The page executes heavyweight browser/runtime checks serially. CI
     // runners can need slightly more than ten seconds even when every check
     // succeeds, so keep the assertions strict while allowing scheduling slack.
     { timeout: 60_000 },

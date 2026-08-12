@@ -10,6 +10,7 @@
     "build:sdk": "pnpm --filter @agentbridges-ai/onlyoffice-embed-sdk build",
     "typecheck:sdk": "pnpm --filter @agentbridges-ai/onlyoffice-embed-sdk typecheck",
     "pack:sdk": "pnpm --filter @agentbridges-ai/onlyoffice-embed-sdk pack",
+    "verify:x2t": "node scripts/verify-x2t-release.mjs",
     "verify:sdk": "node scripts/verify-sdk-package.mjs",
     "preview": "vite preview --host 0.0.0.0 --port 3001",
     "start": "wrangler dev",

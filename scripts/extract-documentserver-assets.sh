@@ -14,7 +14,7 @@
 #       refreshCommentsFromSdk / refreshRevisionsFromSdk、Word 内容同步回调
 #     - feature/comments.ts、feature/revisions.ts
 #     - scripts/test-comment-revision-apis.mjs 跑一遍回归
-#   文档加载 / x2t 转换（否则易出现 Editor.bin 为空、批注修订读不到）
+#   文档加载 / x2t 转换（x2t 不从 DocumentServer 镜像导出）
 #     - internal/editor/utils.ts：getX2tConvertFormats / getX2tExportFormats（formatTo 须为 CANVAS 类型）
 #     - internal/editor/server.ts：loadDocument 传入 formatFrom / formatTo
 #     - internal/editor/types.ts：AvsFileType 枚举是否与新 x2t 一致
@@ -285,7 +285,7 @@ print_post_upgrade_reminder() {
   文档加载 / x2t
     · internal/editor/utils.ts（getX2tConvertFormats，formatTo 使用 CANVAS 类型）
     · internal/editor/server.ts、util/x2t.ts
-    · 若升级了 x2t WASM，同步 public/.../x2t/
+    · x2t 必须通过 config/x2t-release.lock.json 锁定签名 release；运行 pnpm verify:x2t
 
   站点路径
     · const/index.ts 中 STATIC_RESOURCE 根路径与导出目录一致

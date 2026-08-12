@@ -74,6 +74,8 @@ interface WorkerReadyState {
 export interface X2tConverterOptions {
   /** @internal 测试或定制运行时可替换 Worker 构造方式。 */
   workerFactory?: () => Worker;
+  /** @internal 仅测试可关闭；生产默认每次转换使用全新的 WASM 实例。 */
+  isolateEachConversion?: boolean;
   workerReadyTimeoutMs?: number;
   requestTimeoutMs?: number;
 }
@@ -131,6 +133,7 @@ export class X2tConverter {
   private resourceKey = "";
   private logger?: EditorLogger;
   private readonly workerFactory: () => Worker;
+  private readonly isolateEachConversion: boolean;
   private readonly workerReadyTimeoutMs: number;
   private readonly requestTimeoutMs: number;
 
@@ -138,6 +141,7 @@ export class X2tConverter {
     this.workerFactory =
       options.workerFactory ??
       (() => new X2tWorker({ name: "onlyoffice-x2t" }));
+    this.isolateEachConversion = options.isolateEachConversion ?? true;
     this.workerReadyTimeoutMs =
       options.workerReadyTimeoutMs ?? DEFAULT_WORKER_READY_TIMEOUT_MS;
     this.requestTimeoutMs =
@@ -542,7 +546,20 @@ export class X2tConverter {
       formatFrom,
       formatTo,
     });
-    return this.sendMessage<X2tConvertResult>("convert", payload);
+    const worker = this.worker;
+    try {
+      return await this.sendMessage<X2tConvertResult>("convert", payload);
+    } finally {
+      if (this.isolateEachConversion && worker && worker === this.worker) {
+        this.resetWorker(
+          new X2tConversionError(
+            "x2t worker completed its isolated conversion",
+            { code: "worker-terminated" },
+          ),
+          worker,
+        );
+      }
+    }
   }
 
   /**

@@ -67,11 +67,11 @@ import { STATIC_RESOURCE } from "@/components/onlyoffice-embed-sdk";
 
 STATIC_RESOURCE.onlyoffice.root     // 默认 /packages/onlyoffice/9.4.0-develop
 STATIC_RESOURCE.onlyoffice.apiUrl     // api.js 绝对 URL
-STATIC_RESOURCE.x2t.script            // x2t.js 路径
-STATIC_RESOURCE.x2t.wasm              // x2t.wasm 路径
+STATIC_RESOURCE.x2t.script            // 独立签名 release 的 x2t.js
+STATIC_RESOURCE.x2t.wasm              // 独立签名 release 的 Brotli x2t.wasm
 ```
 
-SDK 根路径默认是 `/packages/onlyoffice/9.4.0-develop`；如需使用 CDN，请在首次创建编辑器前调用 `OnlyOfficeManager.registerStaticResource({ cdnOrigin })`。
+编辑器 SDK 根路径默认是 `/packages/onlyoffice/9.4.0-develop`；x2t 使用不可变的 `/packages/onlyoffice/x2t/<tag>` 目录。如需使用 CDN，请在首次创建编辑器前调用 `OnlyOfficeManager.registerStaticResource({ cdnOrigin })`。
 
 ### `__custom_font_registry__`
 

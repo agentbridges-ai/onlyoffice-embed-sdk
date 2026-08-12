@@ -30,7 +30,7 @@ The package integration path is:
 
 The hosted compatibility entry serves its own runtime resources; the parent application does not copy `public/packages`. Package-specific installation, CSP, compatibility, and release details are in [`packages/onlyoffice-embed-sdk/README.md`](packages/onlyoffice-embed-sdk/README.md).
 
-Static resource resolution is centralized in [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts). Both local and CDN modes use the Developer Edition Docker-exported 9.4 SDK at `/packages/onlyoffice/9.4.0-develop` by default; `onlyofficeVersion` can override the CDN directory when needed.
+Static resource resolution is centralized in [`src/components/onlyoffice-embed-sdk/const/index.ts`](src/components/onlyoffice-embed-sdk/const/index.ts). The editor UI uses the Developer Edition Docker-exported 9.4 SDK at `/packages/onlyoffice/9.4.0-develop`; the converter is independently pinned to a signed `agentbridges-ai/onlyoffice-x2t-wasm` release under `/packages/onlyoffice/x2t/<tag>`. `onlyofficeVersion` changes only the editor UI resource directory.
 
 ## Core Advantages
 
@@ -78,25 +78,33 @@ curl https://onlyoffice.agent-bridges.com/api/version
 ```json
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.2.0",
-  "release": "sdk-v0.2.0",
+  "version": "0.3.0",
+  "release": "sdk-v0.3.0",
   "hostIdentity": {
-    "packageVersion": "0.2.0",
-    "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
-    "assetManifestDigest": "08d22b63478f418488c67356842455ea7bcf040ddecbac9c6b0c3d72db4b0dbe"
+    "packageVersion": "0.3.0",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v2",
+    "assetManifestDigest": "becf9ed215cab2269745d330ad42e2a9e556845e7702d46a64a3de6c565c239b"
   },
   "runtimeManifest": {
-    "packageVersion": "0.2.0",
-    "hostBuildId": "onlyoffice-embed-sdk-direct-v1",
+    "packageVersion": "0.3.0",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v2",
     "compatSubframeProtocol": 1,
     "compatSubframePath": "/subframe?runtime=compat",
-    "onlyofficeVersion": "9.4.0-develop"
+    "onlyofficeVersion": "9.4.0-develop",
+    "x2t": {
+      "repository": "agentbridges-ai/onlyoffice-x2t-wasm",
+      "tag": "v9.3.0+4",
+      "sourceCommit": "5790fda684ac1a837f1ab92fcaaf4a0de9ec4ec1"
+    }
   }
 }
 ```
 
 The endpoint supports `GET`, `HEAD`, and cross-origin queries. It sends
 `Cache-Control: no-store` so consumers receive the currently deployed version.
+The `x2t` object above shows its identity coordinates; the live response also
+includes the pinned toolchain, raw/compressed asset hashes, and real DOC/Pivot
+regression digests.
 `hostIdentity.assetManifestDigest` is the SHA-256 of the canonical
 `runtimeManifest` JSON bytes, allowing consumers to pin the deployed protocol
 coordinates returned by the same endpoint. It is not a byte-by-byte audit of
@@ -235,7 +243,7 @@ Ensure all font files comply with applicable licenses.
 - [OnlyOffice API docs](https://api.onlyoffice.com/docs/docs-api/usage-api/config/document/)
 - [OnlyOffice Web Apps](https://github.com/ONLYOFFICE/web-apps)
 - [OnlyOffice SDK](https://github.com/ONLYOFFICE/sdkjs)
-- [x2t-wasm](https://github.com/cryptpad/onlyoffice-x2t-wasm)
+- [agentbridges-ai/onlyoffice-x2t-wasm](https://github.com/agentbridges-ai/onlyoffice-x2t-wasm)
 
 ## Contributing
 

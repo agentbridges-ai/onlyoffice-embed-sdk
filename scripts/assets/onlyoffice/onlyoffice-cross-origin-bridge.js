@@ -10,6 +10,7 @@
   };
   var EDITOR_COMMAND = {
     EDITOR_SUBSCRIBE: "editor:subscribe",
+    DOCUMENT_PRINT_PDF: "document:print-pdf",
     DOCUMENT_RENAME: "document:rename",
     COMMENT_ADD: "comment:add",
     COMMENT_UPDATE: "comment:update",
@@ -1681,6 +1682,26 @@
     switch (command) {
       case EDITOR_COMMAND.EDITOR_SUBSCRIBE:
         return registerEditorCallback(api, payload && payload.event);
+      case EDITOR_COMMAND.DOCUMENT_PRINT_PDF:
+        if (typeof api.asc_nativeGetPDF !== "function") {
+          throw new Error("OnlyOffice native PDF API is not available");
+        }
+        var previousNative = window.native;
+        window.native = Object.assign({}, previousNative || {}, {
+          Save_End:
+            previousNative && typeof previousNative.Save_End === "function"
+              ? previousNative.Save_End
+              : function () {},
+        });
+        try {
+          return api.asc_nativeGetPDF({ isPrint: true });
+        } finally {
+          if (previousNative) {
+            window.native = previousNative;
+          } else {
+            delete window.native;
+          }
+        }
       case EDITOR_COMMAND.DOCUMENT_RENAME:
         if (!payload || !payload.fileName) {
           throw new Error("Document file name is required");

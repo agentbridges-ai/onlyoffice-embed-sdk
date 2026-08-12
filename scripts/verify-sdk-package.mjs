@@ -455,6 +455,7 @@ const requiredCompatExports = [
   "mountOfficeEditor",
   "createOfficeRuntimeResourceManager",
   "ONLYOFFICE_EMBED_SDK_VERSION",
+  "ONLYOFFICE_X2T_RELEASE",
 ] as const;
 const requiredCompatSubframeExports = [
   "createOfficeEditor",
@@ -477,6 +478,14 @@ for (const name of requiredCompatSubframeExports) {
 if (compat.ONLYOFFICE_EMBED_SDK_VERSION !== ${JSON.stringify(sdkPackageJson.version)}) {
   throw new Error(\`SDK identity version does not match the installed package: \${compat.ONLYOFFICE_EMBED_SDK_VERSION}\`);
 }
+if (
+  compat.ONLYOFFICE_X2T_RELEASE?.tag !== "v9.3.0+4" ||
+  compat.ONLYOFFICE_X2T_RELEASE?.sourceCommit !== "5790fda684ac1a837f1ab92fcaaf4a0de9ec4ec1" ||
+  compat.ONLYOFFICE_X2T_RELEASE?.files?.wasmRawSha256 !==
+    "68d225de76693d0341531b44fc24a2f9a8e0f06aa4c3d903399cb32a8008d5e7"
+) {
+  throw new Error("SDK did not export the immutable x2t release identity");
+}
 
 document.querySelector("#app")!.textContent = "onlyoffice-embed-sdk consumer ready";
 `,
@@ -490,7 +499,7 @@ import * as compatSubframe from "${expectedPackageName}/compat/subframe";
 
 for (const [namespace, values, names] of [
   ["root", sdk, ["OnlyOfficeManager", "onlyOfficeManagerFactory", "registerOnlyOfficeStaticResource"]],
-  ["compat", compat, ["createOfficeEditor", "mountOfficeEditor", "createOfficeRuntimeResourceManager", "ONLYOFFICE_EMBED_SDK_VERSION"]],
+  ["compat", compat, ["createOfficeEditor", "mountOfficeEditor", "createOfficeRuntimeResourceManager", "ONLYOFFICE_EMBED_SDK_VERSION", "ONLYOFFICE_X2T_RELEASE"]],
   ["compat subframe", compatSubframe, ["createOfficeEditor", "mountOfficeEditor", "getOfficeSubframeOrigin", "COMPAT_SUBFRAME_PROTOCOL_SOURCE", "HOSTED_COMPAT_SUBFRAME_IDENTITY", "ONLYOFFICE_EMBED_HOST_MANIFEST"]],
 ]) {
   for (const name of names) {
@@ -499,6 +508,14 @@ for (const [namespace, values, names] of [
 }
 if (compat.ONLYOFFICE_EMBED_SDK_VERSION !== ${JSON.stringify(sdkPackageJson.version)}) {
   throw new Error(\`SDK identity version does not match the installed package: \${compat.ONLYOFFICE_EMBED_SDK_VERSION}\`);
+}
+if (
+  compat.ONLYOFFICE_X2T_RELEASE?.tag !== "v9.3.0+4" ||
+  compat.ONLYOFFICE_X2T_RELEASE?.sourceCommit !== "5790fda684ac1a837f1ab92fcaaf4a0de9ec4ec1" ||
+  compat.ONLYOFFICE_X2T_RELEASE?.files?.wasmRawSha256 !==
+    "68d225de76693d0341531b44fc24a2f9a8e0f06aa4c3d903399cb32a8008d5e7"
+) {
+  throw new Error("SDK did not export the immutable x2t release identity");
 }
 
 console.log("onlyoffice-embed-sdk SSR import ready");
@@ -609,6 +626,7 @@ async function main() {
   );
   assert.equal(rootPackageJson.private, true, "the application root must be private");
 
+  run("node", ["scripts/verify-x2t-release.mjs"]);
   run("pnpm", ["--filter", expectedPackageName, "run", "typecheck"]);
   run("pnpm", ["--filter", expectedPackageName, "run", "build"]);
 

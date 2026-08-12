@@ -31,7 +31,9 @@ export const CONTAINER_IDS = {
   concurrent: "e2e-concurrent-editor",
   create: "e2e-create-editor",
   file: "e2e-file-editor",
+  legacy: "e2e-legacy-doc-editor",
   textFallback: "e2e-text-fallback-editor",
+  pivot: "e2e-pivot-editor",
   fromEditor: "e2e-from-editor",
   fixture: "e2e-fixture-editor",
 } as const;
@@ -41,6 +43,11 @@ const NEXOLYRA_PLUGIN_GUID =
   "asc.{E2E4D0B6-6F1E-4B80-9A4D-8F6B1C2D3E40}";
 
 declare const Api: {
+  GetSheet: (name: string) => {
+    GetAllPivotTables: () => unknown[];
+    GetUsedRange: () => { GetAddress: () => string };
+    SetActive: () => void;
+  };
   GetActiveSheet: () => {
     GetRange: (address: string) => {
       SetValue: (value: string) => void;
@@ -180,7 +187,7 @@ async function assertX2tImport(fileName: string, fileType: FileType) {
   const { formatFrom, formatTo } = getX2tConvertFormats(fileType);
   const result = await converter.convert({
     data,
-    fileFrom: `doc.${fileType.toLowerCase()}`,
+    fileFrom: fileName,
     fileTo: "Editor.bin",
     formatFrom,
     formatTo,
@@ -189,6 +196,49 @@ async function assertX2tImport(fileName: string, fileType: FileType) {
   assert(
     result.output && result.output.byteLength > 0,
     `Expected x2t to import ${fileName}`,
+  );
+}
+
+async function assertRealX2tRegressions() {
+  const legacyName = "example-title-ole.doc";
+  const legacyFile = await fetchPublicFile(`/e2e/fixtures/${legacyName}`, legacyName);
+  const legacyFormats = getX2tConvertFormats("doc");
+  const legacy = await converter.convert({
+    data: await legacyFile.arrayBuffer(),
+    fileFrom: legacyName,
+    fileTo: "Editor.bin",
+    ...legacyFormats,
+  });
+  assert(legacy.output, "Legacy DOC conversion did not produce Editor.bin");
+  assert(
+    legacy.output.byteLength === 132_030,
+    `Unexpected legacy DOC Editor.bin size: ${legacy.output.byteLength}`,
+  );
+  const legacyHeader = new TextDecoder("ascii").decode(legacy.output.slice(0, 10));
+  assert(legacyHeader.startsWith("DOCY;v"), `Unexpected legacy DOC header: ${legacyHeader}`);
+  assert(
+    Object.keys(legacy.media).some((name) => /display6image1\.(?:svg|emf)$/i.test(name)),
+    "Legacy DOC conversion lost the embedded OLE preview",
+  );
+
+  const showcaseName = "pivot-slicer-showcase.xlsx";
+  const showcaseFile = await fetchPublicFile(
+    `/e2e/fixtures/${showcaseName}`,
+    showcaseName,
+  );
+  const showcaseFormats = getX2tConvertFormats(FILE_TYPE.XLSX);
+  const showcase = await converter.convert({
+    data: await showcaseFile.arrayBuffer(),
+    fileFrom: showcaseName,
+    fileTo: "Editor.bin",
+    ...showcaseFormats,
+  });
+  assert(showcase.output, "Pivot/Slicer conversion did not produce Editor.bin");
+  const showcaseHeader = new TextDecoder("ascii").decode(showcase.output.slice(0, 10));
+  assert(showcaseHeader.startsWith("XLSY;v2"), `Unexpected Pivot/Slicer header: ${showcaseHeader}`);
+  assert(
+    Object.keys(showcase.media).some((name) => /image1\.png$/i.test(name)),
+    "Pivot/Slicer conversion lost workbook media",
   );
 }
 
@@ -532,12 +582,13 @@ export async function runScenario(
     manager.setUser({ id: "updated-user", name: "Updated User" });
     assert(manager.getUser().id === "updated-user", "setUser/getUser failed");
 
+    const nextLanguage = manager.getLanguage() === "en" ? "zh" : "en";
     await withDocumentReady(
-      () => manager.setLanguage("en"),
+      () => manager.setLanguage(nextLanguage),
       "setLanguage",
       CONTAINER_IDS.factory,
     );
-    assert(manager.getLanguage() === "en", "setLanguage failed");
+    assert(manager.getLanguage() === nextLanguage, "setLanguage failed");
 
     await withDocumentReady(
       () => manager.setTheme(OFFICE_THEME.DARK),
@@ -599,6 +650,8 @@ export async function runScenario(
       name: string;
       kind: "positive" | "negative";
       source: string;
+      size: number;
+      sha256: string;
     }>;
     const names = new Set(manifest.map((fixture) => fixture.name));
     assert(
@@ -607,6 +660,20 @@ export async function runScenario(
     );
     assert(names.has("xml-limit.docx"), "Missing XML limit fixture");
     assert(names.has("mismatch-xlsx-as-docx.docx"), "Missing mismatch fixture");
+    const legacy = manifest.find((fixture) => fixture.name === "example-title-ole.doc");
+    assert(legacy?.size === 98_816, "Legacy DOC fixture size changed");
+    assert(
+      legacy.sha256 === "d85e44ae5368ccbbe57ded8533ced05a250c30cfa15da10f19fdaf63f080238c",
+      "Legacy DOC fixture digest changed",
+    );
+    const showcase = manifest.find(
+      (fixture) => fixture.name === "pivot-slicer-showcase.xlsx",
+    );
+    assert(showcase?.size === 331_122, "Pivot/Slicer fixture size changed");
+    assert(
+      showcase.sha256 === "ffecc0a33c9e41b392fbee30127a97f3e5c3577c717be103471460bd07c2ec58",
+      "Pivot/Slicer fixture digest changed",
+    );
     return `${manifest.length} generated fixtures`;
   });
 
@@ -614,6 +681,11 @@ export async function runScenario(
     await assertX2tImport("edge-invalid-bookmark.docx", FILE_TYPE.DOCX);
     await assertX2tRejectsTraversalAndRecovers();
     return "DOCX converted; traversal rejected; clean Worker recovered";
+  });
+
+  await runStep("x2t legacy DOC and Pivot/Slicer", async () => {
+    await assertRealX2tRegressions();
+    return "DOCY OLE preview and XLSY v2 media preserved";
   });
 
   await runStep("generated negative fixtures", async () => {
@@ -744,6 +816,50 @@ export async function runScenario(
     editorManagerFactory.destroy(CONTAINER_IDS.file);
   });
 
+  await runStep("manager legacy DOC OLE preview", async () => {
+    const file = await fetchPublicFile(
+      "/e2e/fixtures/example-title-ole.doc",
+      "Example Title.doc",
+    );
+    const manager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.createWithFile(
+          {
+            containerId: CONTAINER_IDS.legacy,
+            fileType: FILE_TYPE.DOCX,
+            defaultFileName: file.name,
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+          },
+          file,
+        ),
+      "legacy DOC createWithFile",
+      CONTAINER_IDS.legacy,
+    );
+    try {
+      assert(manager.isReady(), "Legacy DOC manager was not ready");
+      const exported = await manager.exportAsBlob();
+      assert(exported.blob.size > 0, "Legacy DOC export produced an empty file");
+      assert(
+        exported.fileName.toLowerCase().endsWith(".docx"),
+        `Legacy DOC export did not use DOCX fallback: ${exported.fileName}`,
+      );
+      const reopened = new File([exported.blob], exported.fileName, {
+        type: exported.blob.type,
+      });
+      await withDocumentReady(
+        () => manager.openFile(reopened),
+        "legacy DOC exported DOCX reopen",
+        CONTAINER_IDS.legacy,
+      );
+      assert(manager.isReady(), "Exported legacy DOC did not reopen as DOCX");
+    } finally {
+      manager.destroy();
+      editorManagerFactory.destroy(CONTAINER_IDS.legacy);
+    }
+    return "Legacy DOC reached ready; DOCX export reopened";
+  });
+
   await runStep("manager spreadsheet connector", async () => {
     const file = await fetchPublicFile("/test.xlsx", "test.xlsx");
     const manager = await withDocumentReady(
@@ -790,6 +906,126 @@ export async function runScenario(
     }
 
     return "Wrote [Connector] wrote this cell. to A1";
+  });
+
+  await runStep("manager PivotTable and Slicer model", async () => {
+    const file = await fetchPublicFile(
+      "/e2e/fixtures/pivot-slicer-showcase.xlsx",
+      "ONLYOFFICE Spreadsheet Preview Showcase.xlsx",
+    );
+    const manager = await withDocumentReady(
+      () =>
+        OnlyOfficeManager.createWithFile(
+          {
+            containerId: CONTAINER_IDS.pivot,
+            fileType: FILE_TYPE.XLSX,
+            defaultFileName: file.name,
+            readOnly: false,
+            theme: DEFAULT_OFFICE_THEME,
+          },
+          file,
+        ),
+      "Pivot/Slicer createWithFile",
+      CONTAINER_IDS.pivot,
+    );
+    const connector = manager.createConnector();
+    try {
+      const model = await new Promise<{
+        pivotCount: number;
+        usedRange: string;
+        slicerModelCount: number;
+        slicerDrawingCount: number;
+        slicerNames: string[];
+        slicerDrawingNames: string[];
+      }>(
+        (resolve, reject) => {
+          const timeout = window.setTimeout(
+            () => reject(new Error("Pivot/Slicer connector timed out")),
+            10_000,
+          );
+          connector.callCommand(
+            function () {
+              const sheet = Api.GetSheet("Native PivotTable and Slicer");
+              sheet.SetActive();
+              // Runtime-internal compatibility gate for the pinned 9.4 bundle.
+              const internalSheet = (
+                sheet as typeof sheet & {
+                  Ba?: {
+                    ww?: Array<{ asc_getName(): string }>;
+                    Eg?: Array<{ jd?: { name?: string } }>;
+                  };
+                }
+              ).Ba;
+              const slicerModels = internalSheet?.ww ?? [];
+              const slicerDrawings = internalSheet?.Eg ?? [];
+              return {
+                pivotCount: sheet.GetAllPivotTables().length,
+                usedRange: sheet.GetUsedRange().GetAddress(),
+                slicerModelCount: slicerModels.length,
+                slicerDrawingCount: slicerDrawings.length,
+                slicerNames: slicerModels.map((slicer) => slicer.asc_getName()),
+                slicerDrawingNames: slicerDrawings.map(
+                  (drawing) => drawing.jd?.name ?? "",
+                ),
+              };
+            },
+            (result) => {
+              window.clearTimeout(timeout);
+              resolve(
+                result as {
+                  pivotCount: number;
+                  usedRange: string;
+                  slicerModelCount: number;
+                  slicerDrawingCount: number;
+                  slicerNames: string[];
+                  slicerDrawingNames: string[];
+                },
+              );
+            },
+          );
+        },
+      );
+      assert(model.pivotCount === 1, "Native PivotTable model was not loaded");
+      assert(
+        model.usedRange.replaceAll("$", "") === "A1:S11",
+        `Unexpected native sheet range: ${model.usedRange}`,
+      );
+      assert(
+        model.slicerModelCount === 3,
+        `Expected 3 native Slicer models, got ${model.slicerModelCount}`,
+      );
+      assert(
+        model.slicerDrawingCount === 3,
+        `Expected 3 native Slicer drawings, got ${model.slicerDrawingCount}`,
+      );
+      assert(
+        model.slicerNames.includes("区域筛选") &&
+          model.slicerDrawingNames.includes("区域筛选"),
+        `Native Slicer control was not loaded: ${model.slicerNames.join(", ")}`,
+      );
+      const roundTrip = await manager.exportAsBlob();
+      const archiveIndex = new TextDecoder("latin1").decode(
+        await roundTrip.blob.arrayBuffer(),
+      );
+      const nativeParts = [
+        "xl/pivotTables/pivotTable1.xml",
+        "xl/pivotCache/pivotCacheDefinition1.xml",
+        "xl/pivotCache/pivotCacheRecords1.xml",
+        "xl/slicers/slicer1.xml",
+        "xl/slicerCaches/slicerCache1.xml",
+        "xl/slicerCaches/slicerCache2.xml",
+        "xl/slicerCaches/slicerCache3.xml",
+      ];
+      assert(
+        nativeParts.every((part) => archiveIndex.includes(part)),
+        "PivotTable/Slicer OOXML parts were lost during XLSX roundtrip",
+      );
+    } finally {
+      connector.disconnect();
+      manager.destroy();
+      editorManagerFactory.destroy(CONTAINER_IDS.pivot);
+    }
+    return "PivotTable=1; Native Slicer models/drawings=3/3; Native sheet A1:S11; Pivot/Slicer OOXML roundtrip preserved";
   });
 
   await runStep("text fallback files", async () => {
@@ -986,6 +1222,8 @@ export function OnlyOfficeFactoryE2EPage() {
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.concurrent} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.create} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.file} />
+        <OnlyOfficeTestEditor containerId={CONTAINER_IDS.legacy} />
+        <OnlyOfficeTestEditor containerId={CONTAINER_IDS.pivot} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.textFallback} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.fromEditor} />
         <OnlyOfficeTestEditor containerId={CONTAINER_IDS.fixture} />

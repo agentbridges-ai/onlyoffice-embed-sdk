@@ -995,9 +995,10 @@ export class EditorServer {
   private createLoadPromise(
     buffer: ArrayBuffer | (() => Promise<ArrayBuffer>),
     fileType: string,
+    fileName: string,
     generation: number,
   ) {
-    return this.loadDocument(buffer, fileType, generation).catch((err) => {
+    return this.loadDocument(buffer, fileType, fileName, generation).catch((err) => {
       if (generation !== this.loadGeneration) {
         return;
       }
@@ -1112,6 +1113,7 @@ export class EditorServer {
     this.loadPromise = this.createLoadPromise(
       buffer,
       this.fileType,
+      this.title,
       generation,
     );
 
@@ -1186,6 +1188,7 @@ export class EditorServer {
     this.loadPromise = this.createLoadPromise(
       () => loader(url),
       this.fileType,
+      this.title,
       generation,
     );
 
@@ -1377,6 +1380,7 @@ export class EditorServer {
   private async loadDocument(
     buffer: ArrayBuffer | (() => Promise<ArrayBuffer>),
     fileType: string,
+    fileName: string,
     generation: number,
   ) {
     if (typeof buffer == "function") {
@@ -1409,6 +1413,7 @@ export class EditorServer {
       ({ output, media, themes } = await this.convertBufferToEditorBin(
         buffer,
         sourceFileType,
+        fileName,
       ));
     }
 
@@ -1436,6 +1441,7 @@ export class EditorServer {
   private async convertBufferToEditorBin(
     buffer: ArrayBuffer,
     fileType: string,
+    fileName: string,
   ) {
     this.assertOfficeXmlSizeWithinLimit(buffer, fileType);
     buffer = await this.rewriteUnsupportedPptxImages(buffer, fileType);
@@ -1443,7 +1449,8 @@ export class EditorServer {
     const result = await converter.convert(
       {
         data: buffer,
-        fileFrom: "doc." + fileType,
+        fileFrom:
+          fileName.replaceAll(/[/\\\0]/g, "_").trim() || `document.${fileType}`,
         fileTo: "Editor.bin",
         formatFrom,
         formatTo,
@@ -1636,7 +1643,7 @@ export class EditorServer {
 
   private async convertCsvViaXlsx(buffer: ArrayBuffer) {
     const xlsxBuffer = await convertCsvBufferToXlsxBuffer(buffer);
-    return this.convertBufferToEditorBin(xlsxBuffer, "xlsx");
+    return this.convertBufferToEditorBin(xlsxBuffer, "xlsx", "document.xlsx");
   }
 
   private addMedia(name: string, data: Uint8Array, mimeType?: string) {
@@ -1818,6 +1825,21 @@ export class EditorServer {
 
     assertValidPdfOutput(new Uint8Array(result.output));
     return result.output;
+  }
+
+  /** Convert asc_nativeGetPDF's renderer stream with the current Editor.bin. */
+  async convertPrintRendererToPdf(pdfRendererStream: Uint8Array) {
+    const binSource = this.resolveEditorBinSource(pdfRendererStream);
+    if (!binSource) {
+      throw new Error("Print PDF conversion requires the current Editor.bin");
+    }
+    return new Uint8Array(
+      await withTimeout(
+        this.convertEditorBinToPdf(binSource, pdfRendererStream),
+        PDF_CONVERT_TIMEOUT_MS,
+        "Print PDF conversion",
+      ),
+    );
   }
 
   private async resolveDownloadOutputData(input: Uint8Array, filetype: string) {
