@@ -1443,6 +1443,11 @@ async function testCompatibilityNativeOutputCallbacks() {
     const server = (
       manager as unknown as { server: CompatServer }
     ).server;
+    const nativeEditorBin = server.getDocumentSnapshot().binData;
+    assert(
+      nativeEditorBin?.byteLength,
+      "native save regression requires a real Editor.bin snapshot",
+    );
     const documentKey = server.getDocument().key;
     const socket = io(undefined, { deferConnect: true });
     const serverMessages: Array<Record<string, unknown>> = [];
@@ -1512,7 +1517,7 @@ async function testCompatibilityNativeOutputCallbacks() {
         outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
         title: "New_Document.docx",
       },
-      new TextEncoder().encode("DOCY;v5;native-toolbar-save"),
+      nativeEditorBin.slice(),
     ).then((response) => {
       nativeSaveSettled = true;
       return response;
@@ -1948,7 +1953,7 @@ async function testCompatibilityNativeOutputCallbacks() {
         outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
         title: "New_Document.docx",
       },
-      new TextEncoder().encode("DOCY;v5;native-toolbar-save-rejected"),
+      nativeEditorBin.slice(),
     );
     const rejectedNativeResult = (await rejectedNativeResponse.json()) as {
       status?: unknown;
