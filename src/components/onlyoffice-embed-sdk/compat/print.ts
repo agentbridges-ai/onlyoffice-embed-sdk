@@ -22,21 +22,13 @@ function assertTrustedPrintOrigin(ownerWindow: Window, ownerDocument: Document) 
   throw new Error("Printing requires a trusted http(s) document origin");
 }
 
-export function openOfficePrintWindow(
-  ownerWindow: Window,
-  ownerDocument: Document,
-) {
-  assertTrustedPrintOrigin(ownerWindow, ownerDocument);
-  return ownerWindow.open("", "_blank");
-}
-
 const PRINT_PDF_LOAD_TIMEOUT_MS = 15_000;
 const PRINT_PDF_LOAD_FALLBACK_MS = 3_000;
 const PRINT_PDF_RENDER_SETTLE_MS = 1_000;
 
 function waitForPdfNavigation(options: {
   ownerWindow: Window;
-  frame: HTMLIFrameElement | null;
+  frame: HTMLIFrameElement;
   navigate: () => void;
 }) {
   const { ownerWindow, frame, navigate } = options;
@@ -52,8 +44,8 @@ function waitForPdfNavigation(options: {
       if (loadFallbackTimer !== undefined) {
         ownerWindow.clearTimeout(loadFallbackTimer);
       }
-      frame?.removeEventListener("load", handleLoad);
-      frame?.removeEventListener("error", handleError);
+      frame.removeEventListener("load", handleLoad);
+      frame.removeEventListener("error", handleError);
       error ? reject(error) : resolve();
     };
     const settleAfterRender = () => {
@@ -74,25 +66,17 @@ function waitForPdfNavigation(options: {
       () => finish(new Error("Timed out loading printable PDF")),
       PRINT_PDF_LOAD_TIMEOUT_MS,
     );
-    frame?.addEventListener("load", handleLoad, { once: true });
-    frame?.addEventListener("error", handleError, { once: true });
+    frame.addEventListener("load", handleLoad, { once: true });
+    frame.addEventListener("error", handleError, { once: true });
     try {
       navigate();
-      if (frame) {
-        // Headless Chromium and some PDF plug-in configurations do not expose
-        // a load event for a PDF document. Keep the direct-PDF target and use a
-        // conservative fallback rather than reverting to a printable wrapper.
-        loadFallbackTimer = ownerWindow.setTimeout(
-          settleAfterRender,
-          PRINT_PDF_LOAD_FALLBACK_MS,
-        );
-      } else {
-        // Chromium replaces the popup's WindowProxy when its PDF viewer takes
-        // over, so load/document readiness cannot be observed reliably from
-        // the opener. The target itself is already the PDF browsing context;
-        // a bounded render delay avoids printing the former about:blank page.
-        settleAfterRender();
-      }
+      // Headless Chromium and some PDF plug-in configurations do not expose a
+      // load event for a PDF document. Keep the direct-PDF target and use a
+      // conservative fallback rather than reverting to a printable wrapper.
+      loadFallbackTimer = ownerWindow.setTimeout(
+        settleAfterRender,
+        PRINT_PDF_LOAD_FALLBACK_MS,
+      );
     } catch (error) {
       finish(error instanceof Error ? error : new Error(String(error)));
     }
@@ -103,17 +87,17 @@ export async function printOfficePdfFile(options: {
   ownerWindow: Window;
   ownerDocument: Document;
   file: File;
-  printWindow: Window | null;
 }) {
-  const { ownerWindow, ownerDocument, file, printWindow } = options;
+  const { ownerWindow, ownerDocument, file } = options;
+  assertTrustedPrintOrigin(ownerWindow, ownerDocument);
   const URLConstructor =
     (ownerWindow as Window & { URL?: typeof URL }).URL || URL;
   const objectUrl = URLConstructor.createObjectURL(file);
-  const frame = printWindow ? null : ownerDocument.createElement("iframe");
-  if (frame) {
-    frame.style.cssText =
-      "position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none";
-  }
+  const frame = ownerDocument.createElement("iframe");
+  frame.dataset.onlyofficePrintTarget = "pdf";
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;opacity:0;pointer-events:none";
 
   try {
     const header = new TextDecoder("ascii").decode(
@@ -123,32 +107,26 @@ export async function printOfficePdfFile(options: {
       throw new Error("Printable output is not a PDF");
     }
 
-    if (frame) ownerDocument.body.appendChild(frame);
-    const targetWindow = printWindow || frame?.contentWindow;
-    if (!targetWindow) throw new Error("Failed to create a printable window");
-
+    frame.src = objectUrl;
     await waitForPdfNavigation({
       ownerWindow,
       frame,
       navigate: () => {
-        if (printWindow) {
-          printWindow.location.replace(objectUrl);
-        } else if (frame) {
-          frame.src = objectUrl;
-        }
+        ownerDocument.body.appendChild(frame);
       },
     });
+    const targetWindow = frame.contentWindow;
+    if (!targetWindow) throw new Error("Failed to create a printable window");
     targetWindow.focus();
     targetWindow.print();
   } catch (error) {
-    printWindow?.close();
-    frame?.remove();
+    frame.remove();
     URLConstructor.revokeObjectURL(objectUrl);
     throw error;
   }
-
-  ownerWindow.setTimeout(() => {
-    frame?.remove();
-    URLConstructor.revokeObjectURL(objectUrl);
-  }, 60_000);
+  // window.print() is synchronous while Chromium's preview is open. Once it
+  // returns, retaining the PDF browsing context can only make a later print
+  // action observe the previous target, so dispose it immediately.
+  frame.remove();
+  URLConstructor.revokeObjectURL(objectUrl);
 }

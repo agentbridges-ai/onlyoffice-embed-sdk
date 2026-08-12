@@ -824,6 +824,18 @@
           return;
         }
 
+        var nativeOnLoad = target.onload;
+        var printNavigationPending = true;
+        if (typeof nativeOnLoad === "function") {
+          target.onload = function (event) {
+            if (printNavigationPending) {
+              return;
+            }
+            target.onload = nativeOnLoad;
+            return nativeOnLoad.call(target, event);
+          };
+        }
+
         window
           .fetch(value)
           .then(function (response) {
@@ -834,6 +846,7 @@
           })
           .then(function (blob) {
             var objectUrl = URL.createObjectURL(blob);
+            printNavigationPending = false;
             nativeSetter.call(target, objectUrl);
             window.setTimeout(function () {
               URL.revokeObjectURL(objectUrl);
@@ -841,6 +854,7 @@
           })
           .catch(function (error) {
             console.warn("[OnlyOffice] print PDF fetch failed:", error);
+            printNavigationPending = false;
             nativeSetter.call(target, value);
           });
       },

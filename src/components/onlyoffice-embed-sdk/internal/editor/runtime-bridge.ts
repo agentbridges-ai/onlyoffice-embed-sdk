@@ -898,6 +898,21 @@ function installNamedDownloadPatch(
  * The mock cache URL is only handled by our proxy middleware, so translate it
  * to a Blob URL before the browser attempts the navigation.
  */
+export function guardPendingPrintFrameLoad(target: HTMLIFrameElement) {
+  const nativeOnLoad = target.onload;
+  let printNavigationPending = true;
+  if (typeof nativeOnLoad === "function") {
+    target.onload = function (event) {
+      if (printNavigationPending) return;
+      target.onload = nativeOnLoad;
+      return nativeOnLoad.call(target, event);
+    };
+  }
+  return () => {
+    printNavigationPending = false;
+  };
+}
+
 function installPrintFramePatch(
   win: OnlyOfficeProxyWindow,
   server: EditorServer,
@@ -931,6 +946,9 @@ function installPrintFramePatch(
         return;
       }
 
+      const target = this;
+      const allowPrintNavigation = guardPendingPrintFrameLoad(target);
+
       // Fetch through the patched bridge so this also works when the editor
       // iframe is loaded from the CDN origin.
       void fetchFile(blobUrl)
@@ -942,14 +960,16 @@ function installPrintFramePatch(
         })
         .then((blob) => {
           const objectUrl = win.URL.createObjectURL(blob);
-          nativeSetter.call(this, objectUrl);
+          allowPrintNavigation();
+          nativeSetter.call(target, objectUrl);
           // Keep the URL alive through the browser print dialog and release it
           // later; the print controller owns the iframe lifecycle.
           win.setTimeout(() => win.URL.revokeObjectURL(objectUrl), 60_000);
         })
         .catch((error) => {
           console.warn("[OnlyOffice] print PDF fetch failed:", error);
-          nativeSetter.call(this, value);
+          allowPrintNavigation();
+          nativeSetter.call(target, value);
         });
     },
   });

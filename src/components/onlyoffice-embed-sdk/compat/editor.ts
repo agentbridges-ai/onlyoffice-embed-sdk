@@ -18,7 +18,7 @@ import { initializeOnlyOffice } from "../util/initialize";
 import { convertBinToDocument } from "../util/x2t";
 import type { OnlyOfficeLang } from "../store/lang";
 import { OfficePluginBridge } from "./plugin-bridge";
-import { openOfficePrintWindow, printOfficePdfFile } from "./print";
+import { printOfficePdfFile } from "./print";
 import {
   ONLYOFFICE_EMBED_HOST_BUILD_ID,
   ONLYOFFICE_EMBED_SDK_VERSION,
@@ -663,6 +663,7 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
   /** Keeps unsaved state latched when external persistence rejects. */
   private persistenceDirty = false;
   private savePromise: Promise<File> | null = null;
+  private printPromise: Promise<File> | null = null;
   private destroyed = false;
   private returnsToPreview: boolean;
 
@@ -944,29 +945,27 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
   }
 
   async print(): Promise<File> {
+    if (this.printPromise) return this.printPromise;
     if (this.destroyed || !this.manager || this.state.status !== "ready") {
       throw new Error("Editor is not open");
     }
     if (this.savePromise) {
       throw new Error("A save request is already in progress for this editor");
     }
-    const printWindow = openOfficePrintWindow(
-      this.ownerWindow,
-      this.container.ownerDocument,
-    );
-    try {
+    let operation: Promise<File>;
+    operation = (async () => {
       const file = await this.exportPrintPdfFile();
       await printOfficePdfFile({
         ownerWindow: this.ownerWindow,
         ownerDocument: this.container.ownerDocument,
         file,
-        printWindow,
       });
       return file;
-    } catch (error) {
-      printWindow?.close();
-      throw error;
-    }
+    })().finally(() => {
+      if (this.printPromise === operation) this.printPromise = null;
+    });
+    this.printPromise = operation;
+    return operation;
   }
 
   async exportPrintPdfFile(): Promise<File> {

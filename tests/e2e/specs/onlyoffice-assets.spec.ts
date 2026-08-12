@@ -41,6 +41,9 @@ test("canonical cross-origin bridge matches the deployed asset", async () => {
   );
   expect(source).toContain('INTERFACE_SET_THEME: "interface:set-theme"');
   expect(source).toContain('themes.setTheme(interfaceTheme, "sdk")');
+  expect(source).toContain("var printNavigationPending = true");
+  expect(source).toContain("if (printNavigationPending)");
+  expect(source).toContain("printNavigationPending = false");
 });
 
 test("deployed x2t bytes match the immutable release lock", async () => {
