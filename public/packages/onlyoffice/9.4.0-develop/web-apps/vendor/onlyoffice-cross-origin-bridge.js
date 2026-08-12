@@ -2,6 +2,8 @@
   "use strict";
 
   var BRIDGE_SOURCE = "onlyoffice-bridge";
+  var RESOURCE_OBSERVER_PARENT_SOURCE =
+    "onlyoffice-resource-observer-parent";
   var BRIDGE_MESSAGE = {
     EDITOR_COMMAND: "editor:command",
     EDITOR_RESPONSE: "editor:response",
@@ -137,6 +139,23 @@
       state: Object.assign({}, resourceLoadingState),
     }, parentOrigin);
   }
+
+  function handleResourceLoadingStateRequest(event) {
+    var message = event.data;
+    if (
+      event.source !== window.parent ||
+      event.origin !== parentOrigin ||
+      !message ||
+      message.source !== RESOURCE_OBSERVER_PARENT_SOURCE ||
+      message.type !== "get-state" ||
+      message.frameEditorId !== frameEditorId
+    ) {
+      return;
+    }
+    postResourceLoadingState();
+  }
+
+  window.addEventListener("message", handleResourceLoadingStateRequest);
 
   function isHostedStaticResource(entry) {
     try {

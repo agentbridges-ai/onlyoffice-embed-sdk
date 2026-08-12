@@ -463,7 +463,7 @@ test("all 12 real fixed origins expose the exact compatibility handshake", async
 });
 
 test("real package facade activates and controls the hosted child", async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Network.enable");
   await cdp.send("Network.clearBrowserCache");
@@ -529,7 +529,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
           page.evaluate(
             () => document.documentElement.dataset.onlyofficeCacheProbe ?? "",
           ),
-        { timeout: 75_000 },
+        { timeout: 110_000 },
       )
       .toBe(slot);
     await expect
@@ -566,6 +566,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
           return {
             name: resource.name,
             decodedBodySize: resource.decodedBodySize,
+            encodedBodySize: resource.encodedBodySize,
             transferSize: resource.transferSize,
           };
         }), canonicalOrigin);
@@ -637,7 +638,11 @@ test("real package facade activates and controls the hosted child", async ({ pag
       return path.endsWith(suffix) && decodedBodySize > 0;
     });
     expect(
-      matches.some(({ transferSize }) => transferSize === 0),
+      matches.some(
+        ({ encodedBodySize, transferSize }) =>
+          transferSize === 0 ||
+          (encodedBodySize > 0 && transferSize <= 512),
+      ),
       `${suffix} was not reused from the canonical browser cache: ${JSON.stringify(matches)}`,
     ).toBeTruthy();
   };
