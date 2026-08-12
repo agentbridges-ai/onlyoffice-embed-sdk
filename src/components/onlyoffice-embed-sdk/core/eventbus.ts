@@ -24,8 +24,34 @@ export type OnSaveData = {
   instanceId: string;
 };
 
+export type OfficeResourceLoadStatus =
+  | "checking"
+  | "cache-hit"
+  | "downloading"
+  | "downloaded"
+  | "not-observed";
+
+export type OfficeLoadingPhase =
+  | "host-loading"
+  | "runtime-loading"
+  | "static-resources"
+  | "operation"
+  | "ready"
+  | "error"
+  | "destroyed";
+
 export type LoadingChangeData = {
   loading: boolean;
+  phase: OfficeLoadingPhase;
+  resourceStatus: OfficeResourceLoadStatus;
+  /** True only after the browser reports real transferred bytes. */
+  resourceDownload: boolean;
+  /** Encoded body bytes transferred from the network, excluding cache hits. */
+  transferredBytes: number;
+  /** Canonical static resources observed from cache or network. */
+  resourceCount: number;
+  instanceId?: string;
+  manager?: object;
 };
 
 export type OfficeXmlSizeLimitExceededData =

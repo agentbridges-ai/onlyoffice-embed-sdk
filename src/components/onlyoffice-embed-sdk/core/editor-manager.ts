@@ -10,6 +10,7 @@ import {
   callCrossOriginEditor,
   canAccessIframeWindow,
   setCrossOriginReadOnly,
+  subscribeEditorResourceLoading,
   subscribeCrossOriginEditorEvent,
   watchCrossOriginIframe,
 } from "../internal/editor/runtime-bridge";
@@ -56,7 +57,7 @@ import {
   normalizeCommentInput,
   toPluginCommentPayload,
 } from "../feature/comments";
-import { onlyofficeEventbus } from "./eventbus";
+import { onlyofficeEventbus, type LoadingChangeData } from "./eventbus";
 import {
   type RevisionChangeHandlers,
   type RevisionItem,
@@ -117,6 +118,31 @@ export type EditorDocumentExport = Omit<
   binData: Uint8Array;
   instanceId: string;
 };
+
+function isResourceLoadingPayload(value: unknown): value is Pick<
+  LoadingChangeData,
+  | "loading"
+  | "resourceStatus"
+  | "resourceDownload"
+  | "transferredBytes"
+  | "resourceCount"
+> {
+  if (!value || typeof value !== "object") return false;
+  const payload = value as Partial<LoadingChangeData>;
+  return (
+    typeof payload.loading === "boolean" &&
+    ["checking", "cache-hit", "downloading", "downloaded", "not-observed"].includes(
+      String(payload.resourceStatus),
+    ) &&
+    typeof payload.resourceDownload === "boolean" &&
+    typeof payload.transferredBytes === "number" &&
+    Number.isFinite(payload.transferredBytes) &&
+    payload.transferredBytes >= 0 &&
+    typeof payload.resourceCount === "number" &&
+    Number.isInteger(payload.resourceCount) &&
+    payload.resourceCount >= 0
+  );
+}
 
 type OnlyOfficeNativeThemeWindow = Window & {
   Common?: {
@@ -246,12 +272,29 @@ export class EditorManager {
   private wordContentSyncTeardown: (() => void) | null = null;
   private scopedIoTeardown: (() => void) | null = null;
   private crossOriginBridgeTeardown: (() => void) | null = null;
+  private crossOriginResourceLoadingTeardown: (() => void) | null = null;
+  private resourceLoadingState: Pick<
+    LoadingChangeData,
+    | "resourceStatus"
+    | "resourceDownload"
+    | "transferredBytes"
+    | "resourceCount"
+  > = {
+    resourceStatus: "checking",
+    resourceDownload: false,
+    transferredBytes: 0,
+    resourceCount: 0,
+  };
   private officeXmlSizeLimitOverlayTeardown: (() => void) | null = null;
   private officeXmlSizeLimitPayload: OfficeXmlSizeLimitExceededPayload | null =
     null;
   /** 同一实例的异步 create 串行执行；新请求到达后旧请求只负责清理，不再挂载 iframe。 */
   private createQueue: Promise<void> = Promise.resolve();
   private createGeneration = 0;
+  private startupTimeline: {
+    generation: number;
+    startedAt: number;
+  } | null = null;
   private crossOriginReadOnlySyncGeneration = 0;
   private destroyed = false;
   private pendingRename: {
@@ -472,6 +515,8 @@ export class EditorManager {
     this.crossOriginReadOnlySyncGeneration += 1;
     this.crossOriginBridgeTeardown?.();
     this.crossOriginBridgeTeardown = null;
+    this.crossOriginResourceLoadingTeardown?.();
+    this.crossOriginResourceLoadingTeardown = null;
     this.scopedIoTeardown?.();
     this.scopedIoTeardown = null;
 
@@ -480,6 +525,26 @@ export class EditorManager {
       this.createScopedIo(),
       this.getOwnerWindow(),
     );
+    this.crossOriginResourceLoadingTeardown = subscribeEditorResourceLoading(
+      this.containerId,
+      () => this.getEditorFrameElement(),
+      (payload) => {
+        if (!isResourceLoadingPayload(payload)) return;
+        this.resourceLoadingState = {
+          resourceStatus: payload.resourceStatus,
+          resourceDownload: payload.resourceDownload,
+          transferredBytes: payload.transferredBytes,
+          resourceCount: payload.resourceCount,
+        };
+        this.emitLoadingChange({
+          loading: payload.loading,
+          phase: "static-resources",
+          ...this.resourceLoadingState,
+        });
+      },
+      this.getOwnerWindow(),
+    );
+
     if (!this.isCdnMode()) {
       return;
     }
@@ -492,6 +557,60 @@ export class EditorManager {
       this.getOwnerWindow(),
       this.pluginConfigUrls,
     );
+  }
+
+  private emitLoadingChange(
+    state: Omit<LoadingChangeData, "instanceId" | "manager">,
+  ) {
+    this.logger.operation("loading-change", {
+      event: "loading-change",
+      instanceId: this.instanceId,
+      phase: state.phase,
+      loading: state.loading,
+      resourceStatus: state.resourceStatus,
+      resourceDownload: state.resourceDownload,
+      transferredBytes: state.transferredBytes,
+      resourceCount: state.resourceCount,
+    });
+    onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
+      ...state,
+      instanceId: this.instanceId,
+      manager: this,
+    });
+  }
+
+  private logStartupPhase(
+    generation: number,
+    phase:
+      | "start"
+      | "document-source-ready"
+      | "docs-api-ready"
+      | "editor-mounted"
+      | "document-ready",
+  ) {
+    const timeline = this.startupTimeline;
+    if (!timeline || timeline.generation !== generation) return;
+    this.logger.operation("startup-phase", {
+      event: "startup-phase",
+      instanceId: this.instanceId,
+      generation,
+      phase,
+      elapsedMs: Math.max(
+        0,
+        Math.round(this.getOwnerWindow().performance.now() - timeline.startedAt),
+      ),
+      resourceStatus: this.resourceLoadingState.resourceStatus,
+      resourceDownload: this.resourceLoadingState.resourceDownload,
+    });
+  }
+
+  private emitOperationLoading(loading: boolean) {
+    this.emitLoadingChange({
+      loading,
+      phase: loading ? "operation" : "ready",
+      ...this.resourceLoadingState,
+      resourceDownload: false,
+    });
   }
 
   private syncCrossOriginReadOnly(
@@ -1694,6 +1813,7 @@ export class EditorManager {
     const user = this.server.getUser();
     const documentType = getDocumentType(doc.fileType);
     const ownerWindow = this.getOwnerWindow();
+    const startupGeneration = this.startupTimeline?.generation;
 
     this.server.setClient({
       buildVersion: ownerWindow.DocsAPI!.DocEditor.version(),
@@ -1742,6 +1862,12 @@ export class EditorManager {
           this.installIframeProxies();
         },
         onDocumentReady: () => {
+          if (startupGeneration !== undefined) {
+            this.logStartupPhase(startupGeneration, "document-ready");
+            if (this.startupTimeline?.generation === startupGeneration) {
+              this.startupTimeline = null;
+            }
+          }
           this.installSaveShortcutBlocker();
           this.installCommentResolveCleanup();
           this.installSlideStructureEditBlocker();
@@ -1968,6 +2094,11 @@ export class EditorManager {
       this.server.setUser(options.user);
     }
     this.containerId = containerId;
+    this.startupTimeline = {
+      generation: createGeneration,
+      startedAt: this.getOwnerWindow().performance.now(),
+    };
+    this.logStartupPhase(createGeneration, "start");
 
     const fileType = getFileType(options.fileName, options.fileType);
     this.fileName = options.fileName;
@@ -1978,6 +2109,19 @@ export class EditorManager {
     this.clearOfficeXmlSizeLimitOverlay();
     this.teardownWordContentSync();
 
+    if (!options.isNew && !options.file && !options.url) {
+      throw new Error("OnlyOffice requires a file, url, or new document type");
+    }
+
+    // Start the small DocsAPI bootstrap before File.arrayBuffer()/URL loading.
+    // EditorServer starts x2t asynchronously after the source bytes arrive, so
+    // this also preserves the existing x2t/runtime overlap without changing the
+    // document load promise or its error ownership.
+    const initializeResult = initializeOnlyOffice(this.getOwnerWindow()).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+
     if (options.isNew) {
       this.server.openNew(fileType, options.fileName);
     } else if (options.file) {
@@ -1985,15 +2129,14 @@ export class EditorManager {
         fileName: options.fileName,
         fileType,
       });
-    } else if (options.url) {
-      await this.server.openUrl(options.url, {
+    } else {
+      await this.server.openUrl(options.url!, {
         fileName: options.fileName,
         fileType,
         loader: options.loader,
       });
-    } else {
-      throw new Error("OnlyOffice requires a file, url, or new document type");
     }
+    this.logStartupPhase(createGeneration, "document-source-ready");
 
     if (this.officeXmlSizeLimitPayload) {
       this.renderOfficeXmlSizeLimitOverlay();
@@ -2005,7 +2148,9 @@ export class EditorManager {
       return this;
     }
 
-    await initializeOnlyOffice(this.getOwnerWindow());
+    const initialized = await initializeResult;
+    if ("error" in initialized) throw initialized.error;
+    this.logStartupPhase(createGeneration, "docs-api-ready");
 
     if (!isActive()) {
       if (!this.destroyed) this.teardown();
@@ -2027,6 +2172,7 @@ export class EditorManager {
 
     this.syncEditorBridge();
     this.mountDocEditor();
+    this.logStartupPhase(createGeneration, "editor-mounted");
     this.renderOfficeXmlSizeLimitOverlay();
 
     return this;
@@ -2135,9 +2281,7 @@ export class EditorManager {
       return;
     }
 
-    onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-      loading: true,
-    });
+    this.emitOperationLoading(true);
 
     try {
       if (readOnly && this.editor) {
@@ -2153,9 +2297,7 @@ export class EditorManager {
       this.installSlideStructureEditBlocker();
       this.syncEditingRights(!readOnly);
     } finally {
-      onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-        loading: false,
-      });
+      this.emitOperationLoading(false);
     }
   }
 
@@ -2179,18 +2321,14 @@ export class EditorManager {
       return;
     }
 
-    onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-      loading: true,
-    });
+    this.emitOperationLoading(true);
     try {
       await this.captureDocumentIfDirty();
       this.editorMode = mode;
       this.readOnly = readOnly;
       this.remountDocEditor();
     } finally {
-      onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-        loading: false,
-      });
+      this.emitOperationLoading(false);
     }
   }
 
@@ -2205,17 +2343,13 @@ export class EditorManager {
       return;
     }
 
-    onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-      loading: true,
-    });
+    this.emitOperationLoading(true);
 
     try {
       await this.captureDocumentIfDirty();
       this.remountDocEditor();
     } finally {
-      onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-        loading: false,
-      });
+      this.emitOperationLoading(false);
     }
   }
 
@@ -2269,9 +2403,7 @@ export class EditorManager {
 
     const previousTheme = this.uiTheme;
 
-    onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-      loading: true,
-    });
+    this.emitOperationLoading(true);
 
     try {
       await this.captureDocumentIfDirty();
@@ -2281,9 +2413,7 @@ export class EditorManager {
       this.uiTheme = previousTheme;
       throw error;
     } finally {
-      onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
-        loading: false,
-      });
+      this.emitOperationLoading(false);
     }
   }
 
@@ -3095,6 +3225,8 @@ export class EditorManager {
     this.teardownWordContentSync();
     this.crossOriginBridgeTeardown?.();
     this.crossOriginBridgeTeardown = null;
+    this.crossOriginResourceLoadingTeardown?.();
+    this.crossOriginResourceLoadingTeardown = null;
     this.scopedIoTeardown?.();
     this.scopedIoTeardown = null;
     this.clearOfficeXmlSizeLimitOverlay();

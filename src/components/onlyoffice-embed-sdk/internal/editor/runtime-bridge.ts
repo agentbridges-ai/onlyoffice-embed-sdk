@@ -658,6 +658,40 @@ export const CROSS_ORIGIN_EDITOR_EVENT = {
   DOCUMENT_MODIFIED_CHANGED: "asc_onDocumentModifiedChanged",
 } as const;
 
+export const OFFICE_RESOURCE_OBSERVER_SOURCE =
+  "onlyoffice-resource-observer" as const;
+
+export function subscribeEditorResourceLoading(
+  frameEditorId: string,
+  getIframe: () => HTMLIFrameElement | null | undefined,
+  handler: (state: unknown) => void,
+  ownerWindow: Window = window,
+) {
+  const listener = (event: MessageEvent) => {
+    const iframe = getIframe();
+    const message = event.data;
+    if (
+      !iframe?.contentWindow ||
+      event.source !== iframe.contentWindow ||
+      !message ||
+      message.source !== OFFICE_RESOURCE_OBSERVER_SOURCE ||
+      message.frameEditorId !== frameEditorId
+    ) {
+      return;
+    }
+    let expectedOrigin: string;
+    try {
+      expectedOrigin = new URL(iframe.src, ownerWindow.document.baseURI).origin;
+    } catch {
+      return;
+    }
+    if (event.origin !== expectedOrigin) return;
+    handler(message.state);
+  };
+  ownerWindow.addEventListener("message", listener);
+  return () => ownerWindow.removeEventListener("message", listener);
+}
+
 export function shouldBypassOnlyOfficeProxy(url: string, baseUrl: string) {
   const pathname = new URL(url, baseUrl).pathname;
 
