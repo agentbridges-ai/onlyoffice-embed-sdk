@@ -40,6 +40,8 @@ export type CompatSubframeDocument =
 
 export type CompatSubframeOpenPayload = {
   hostUrl: string;
+  /** Canonical, shared static-resource origin; never the embedding parent origin. */
+  resourceOrigin: string;
   expectedHostIdentity?: OfficeHostIdentity;
   document: CompatSubframeDocument;
   mode: OfficeEditorMode;

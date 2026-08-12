@@ -78,18 +78,20 @@ curl https://onlyoffice.agent-bridges.com/api/version
 ```json
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.3.0",
-  "release": "sdk-v0.3.0",
+  "version": "0.3.1",
+  "release": "sdk-v0.3.1",
   "hostIdentity": {
-    "packageVersion": "0.3.0",
-    "hostBuildId": "onlyoffice-embed-sdk-hosted-v2",
-    "assetManifestDigest": "becf9ed215cab2269745d330ad42e2a9e556845e7702d46a64a3de6c565c239b"
+    "packageVersion": "0.3.1",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v3",
+    "assetManifestDigest": "1ba560ce80aa78dbb6a9b55a7fec42b98dc8a6cdcf18f43c44d5a8d57aa2a096"
   },
   "runtimeManifest": {
-    "packageVersion": "0.3.0",
-    "hostBuildId": "onlyoffice-embed-sdk-hosted-v2",
+    "packageVersion": "0.3.1",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v3",
     "compatSubframeProtocol": 1,
     "compatSubframePath": "/subframe?runtime=compat",
+    "canonicalResourceOrigin": "https://onlyoffice.agent-bridges.com",
+    "onlyofficeResourcePath": "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v3",
     "onlyofficeVersion": "9.4.0-develop",
     "x2t": {
       "repository": "agentbridges-ai/onlyoffice-x2t-wasm",

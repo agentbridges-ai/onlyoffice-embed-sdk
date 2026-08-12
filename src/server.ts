@@ -10,6 +10,90 @@ const STATIC_RESOURCE_ORIGIN =
   "https://onlyoffice-embed-resource.pages.dev";
 const SDK_PACKAGE_NAME = "@agentbridges-ai/onlyoffice-embed-sdk";
 const VERSION_API_PATH = "/api/version";
+const VERSIONED_RUNTIME_PREFIX =
+  `/onlyoffice/runtime/${ONLYOFFICE_EMBED_HOST_BUILD_ID}`;
+const SOURCE_RUNTIME_PREFIX =
+  `/onlyoffice/${ONLYOFFICE_EMBED_HOST_MANIFEST.onlyofficeVersion}`;
+const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const REVALIDATED_CACHE_CONTROL =
+  "public, max-age=3600, stale-while-revalidate=86400";
+const ZODIAC_SLOT_PATTERN =
+  /^(?:rat|ox|tiger|rabbit|dragon|snake|horse|goat|monkey|rooster|dog|pig)\./;
+
+function canonicalStaticOrigin(url: URL) {
+  if (
+    ZODIAC_SLOT_PATTERN.test(url.hostname) &&
+    url.hostname.endsWith(".onlyoffice.agent-bridges.com")
+  ) {
+    return "https://onlyoffice.agent-bridges.com";
+  }
+  if (
+    ZODIAC_SLOT_PATTERN.test(url.hostname) &&
+    url.hostname.endsWith(".onlyoffice.localhost")
+  ) {
+    return `${url.protocol}//onlyoffice.localhost${url.port ? `:${url.port}` : ""}`;
+  }
+  return null;
+}
+
+async function rewriteSubframeAssetUrls(
+  request: Request,
+  response: Response,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const canonicalOrigin = canonicalStaticOrigin(url);
+  if (
+    !canonicalOrigin ||
+    url.pathname !== "/subframe" ||
+    !response.headers.get("Content-Type")?.toLowerCase().startsWith("text/html")
+  ) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  const html = (await response.text()).replace(
+    /(["'])\/assets\//g,
+    `$1${canonicalOrigin}/assets/`,
+  );
+  return new Response(html, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function cacheControlFor(request: Request, response: Response) {
+  const url = new URL(request.url);
+  const contentType = response.headers.get("Content-Type") || "";
+  if (
+    request.method !== "GET" && request.method !== "HEAD"
+  ) {
+    return "no-store";
+  }
+  if (
+    (response.status >= 300 && response.status < 400) ||
+    response.status >= 400 ||
+    url.pathname === VERSION_API_PATH ||
+    url.pathname === "/subframe" ||
+    contentType.toLowerCase().startsWith("text/html")
+  ) {
+    return "no-store";
+  }
+  const immutableAsset =
+    /^\/assets\/[^/?]+-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$/.test(
+      url.pathname,
+    ) ||
+    url.pathname.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`) ||
+    /^\/(?:packages\/)?onlyoffice\/x2t\/v[^/]+\//.test(url.pathname);
+  if (immutableAsset) return IMMUTABLE_CACHE_CONTROL;
+  if (
+    url.pathname.startsWith(`${SOURCE_RUNTIME_PREFIX}/`) ||
+    url.pathname.startsWith(`/packages${SOURCE_RUNTIME_PREFIX}/`)
+  ) {
+    return REVALIDATED_CACHE_CONTROL;
+  }
+  return null;
+}
 
 function fetchVersion(request: Request): Response | null {
   const url = new URL(request.url);
@@ -63,9 +147,12 @@ async function fetchStaticResource(request: Request): Promise<Response | null> {
   const resourcePath = isPackagePath
     ? url.pathname.slice("/packages".length)
     : url.pathname;
-  const targetPath = resourcePath.endsWith("/index.html")
-    ? resourcePath.slice(0, -"index.html".length)
+  const sourcePath = resourcePath.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`)
+    ? `${SOURCE_RUNTIME_PREFIX}${resourcePath.slice(VERSIONED_RUNTIME_PREFIX.length)}`
     : resourcePath;
+  const targetPath = sourcePath.endsWith("/index.html")
+    ? sourcePath.slice(0, -"index.html".length)
+    : sourcePath;
   const target = new URL(
     `${targetPath}${url.search}`,
     `${STATIC_RESOURCE_ORIGIN}/`,
@@ -99,11 +186,23 @@ async function fetchStaticResource(request: Request): Promise<Response | null> {
 
 export default createServerEntry({
   async fetch(request, options) {
-    const response =
+    let response =
       fetchVersion(request) ??
       (await fetchStaticResource(request)) ??
       (await handler.fetch(request, options));
+    response = await rewriteSubframeAssetUrls(request, response);
     const headers = new Headers(response.headers);
+    const cacheControl = cacheControlFor(request, response);
+    if (cacheControl) headers.set("Cache-Control", cacheControl);
+    const pathname = new URL(request.url).pathname;
+    if (
+      pathname.startsWith("/assets/") ||
+      pathname.startsWith("/onlyoffice/") ||
+      pathname.startsWith("/packages/onlyoffice/")
+    ) {
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+    }
     headers.set("Origin-Agent-Cluster", "?1");
 
     return new Response(response.body, {
