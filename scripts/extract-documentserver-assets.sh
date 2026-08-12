@@ -145,6 +145,7 @@ extract_all_assets() {
   disable_service_workers
   install_cross_origin_bridge
   install_root_editor_configs
+  prune_interface_themes
   install_paste_html_sanitizer
   install_custom_font_registry
   install_presenter_bridge
@@ -157,6 +158,11 @@ extract_all_assets() {
   if [[ "$font_count" -eq 0 ]]; then
     die "fonts 目录为空"
   fi
+}
+
+prune_interface_themes() {
+  log "裁剪界面主题，仅保留现代浅色 / 现代深色 …"
+  node "${REPO_ROOT}/scripts/prune-onlyoffice-interface-themes.mjs" "${OUT_DIR}"
 }
 
 install_root_editor_configs() {

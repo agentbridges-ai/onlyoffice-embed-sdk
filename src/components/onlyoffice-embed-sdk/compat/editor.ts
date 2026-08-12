@@ -39,7 +39,7 @@ export type OfficeEditorSourceKind =
   | "buffer"
   | "url";
 export type OfficeSaveBehavior = "auto" | "callback" | "download";
-export type OfficeInterfaceTheme = "system" | "light" | "dark";
+export type OfficeInterfaceTheme = "light" | "dark";
 export type OfficePluginOptions = OnlyOfficePluginOptions;
 export type OfficeSaveCallbackResult = void | boolean;
 export type OfficeSaveAsCallbackResult = void | boolean;
@@ -572,15 +572,8 @@ function notifyOfficeEditorError(
 
 function interfaceThemeToOfficeTheme(
   theme: OfficeInterfaceTheme | undefined,
-  ownerWindow: Window,
 ): OfficeThemeId {
-  const resolved =
-    theme === "system"
-      ? ownerWindow.matchMedia?.("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light"
-      : theme;
-  return resolved === "dark" ? "theme-dark" : "theme-white";
+  return theme === "dark" ? "theme-night" : "theme-white";
 }
 
 function makeFile(
@@ -779,10 +772,7 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
           mode: this.state.mode,
           spellcheck: this.options.spellcheck,
           lang: this.options.lang,
-          theme: interfaceThemeToOfficeTheme(
-            this.options.interfaceTheme,
-            this.ownerWindow,
-          ),
+          theme: interfaceThemeToOfficeTheme(this.options.interfaceTheme),
           plugins: this.options.plugins,
           onDownloadOutput: (output) =>
             this.handleNativeDownloadOutput(output),
@@ -1146,7 +1136,7 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     this.options.interfaceTheme = theme;
     if (!this.destroyed && this.manager) {
       void this.manager
-        .setTheme(interfaceThemeToOfficeTheme(theme, this.ownerWindow))
+        .setTheme(interfaceThemeToOfficeTheme(theme))
         .catch((error) =>
           notifyOfficeEditorError(this.options.onError, toError(error), this),
         );

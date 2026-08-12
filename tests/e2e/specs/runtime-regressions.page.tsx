@@ -1255,7 +1255,7 @@ async function testNativeEditorConfiguration() {
       "preview permissions did not preserve native printing or fail closed",
     );
     assert(
-      customization?.uiTheme === "theme-dark" &&
+      customization?.uiTheme === "theme-night" &&
         customization.spellcheck === true,
       "native theme or spellcheck customization was not forwarded",
     );

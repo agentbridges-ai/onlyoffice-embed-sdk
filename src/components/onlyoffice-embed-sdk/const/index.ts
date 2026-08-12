@@ -32,12 +32,8 @@ export const ONLYOFFICE_LANG_KEY = {
 
 /** OnlyOffice 界面主题（对应 editorConfig.customization.uiTheme） */
 export const OFFICE_THEME = {
-  LIGHT: "theme-light",
-  CLASSIC_LIGHT: "theme-classic-light",
   WHITE: "theme-white",
-  DARK: "theme-dark",
   NIGHT: "theme-night",
-  CONTRAST_DARK: "theme-contrast-dark",
 } as const;
 
 export type OfficeThemeId =
@@ -50,12 +46,8 @@ export const OFFICE_THEME_OPTIONS: ReadonlyArray<{
   id: OfficeThemeId;
   label: string;
 }> = [
-  { id: OFFICE_THEME.WHITE, label: "浅色" },
-  { id: OFFICE_THEME.CLASSIC_LIGHT, label: "经典浅色" },
-  { id: OFFICE_THEME.LIGHT, label: "Light" },
-  { id: OFFICE_THEME.DARK, label: "深色" },
-  { id: OFFICE_THEME.NIGHT, label: "夜间" },
-  { id: OFFICE_THEME.CONTRAST_DARK, label: "高对比深色" },
+  { id: OFFICE_THEME.WHITE, label: "现代浅色" },
+  { id: OFFICE_THEME.NIGHT, label: "现代深色" },
 ];
 
 /** 只读 ↔ 编辑切换时，loading 最少展示时长（ms） */

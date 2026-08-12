@@ -189,7 +189,7 @@ function isOpenPayload(value: unknown): value is CompatSubframeOpenPayload {
       typeof value.canReturnToPreview === "boolean") &&
     (value.spellcheck === undefined || typeof value.spellcheck === "boolean") &&
     (value.interfaceTheme === undefined ||
-      ["system", "light", "dark"].includes(String(value.interfaceTheme))) &&
+      ["light", "dark"].includes(String(value.interfaceTheme))) &&
     (value.lang === undefined || isNonEmptyString(value.lang, 32)) &&
     (value.saveBehavior === undefined ||
       ["auto", "callback", "download"].includes(String(value.saveBehavior))) &&
@@ -214,7 +214,7 @@ function validateActionPayload(request: CompatSubframeRequest) {
     case "set-readonly":
       return isRecord(payload) && typeof payload.readonly === "boolean";
     case "set-theme":
-      return isRecord(payload) && ["system", "light", "dark"].includes(String(payload.theme));
+      return isRecord(payload) && ["light", "dark"].includes(String(payload.theme));
     case "set-language":
       return isRecord(payload) && isNonEmptyString(payload.lang, 32);
     case "invoke-plugin":
