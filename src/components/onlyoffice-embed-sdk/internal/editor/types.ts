@@ -367,7 +367,9 @@ export interface ServerOptions {
   /**
    * @description 用户触发保存（非 export/downloadAs 导出）时回调，携带最新文档快照。
    */
-  onUserSave?: (snapshot: EditorDocumentSnapshot) => void;
+  onUserSave?: (
+    snapshot: EditorCapturedDocumentSnapshot,
+  ) => void | Promise<void>;
   /**
    * @description 原生 Save Copy As / Download As 完成后的文件输出。返回 true 时由接入层接管，服务端仅向 SDK 返回无下载 ACK。
    */

@@ -181,6 +181,12 @@ document persisted, invokes the browser print flow in that parent surface, and
 returns the same `File`. Native menu output still arrives through `onSaveAs`
 and `onDownload`.
 
+Starting with `0.4.4`, the native ONLYOFFICE toolbar Save action uses the same
+`onSave` persistence callback as `instance.save()`. The editor does not receive
+its successful save acknowledgement until that callback resolves; callback
+failure returns a native save error and keeps the document dirty. Native and
+programmatic saves share the same single-flight guard.
+
 Each active editor needs a different slot origin. A slot can be reused only
 after its previous mount has been destroyed. Hosted subframes and all static
 resource responses include `Origin-Agent-Cluster: ?1`.
@@ -213,12 +219,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.4.3`, the expected identity is:
+application's release manifest. For SDK `0.4.4`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.4.3",
-  "hostBuildId": "onlyoffice-embed-sdk-hosted-v9",
+  "packageVersion": "0.4.4",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v10",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -301,7 +307,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.4.3`. The protected release workflow requires a GitHub-verified signed
+`sdk-v0.4.4`. The protected release workflow requires a GitHub-verified signed
 annotated tag on `main`, approval through the `npm-production` environment,
 and npm trusted publishing. It publishes the exact verified tarball with OIDC
 provenance; direct manual publication is not a supported release path.

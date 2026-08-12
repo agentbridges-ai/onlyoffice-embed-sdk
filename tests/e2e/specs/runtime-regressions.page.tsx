@@ -1500,6 +1500,48 @@ async function testCompatibilityNativeOutputCallbacks() {
       "programmatic save persistence escaped the onSave channel",
     );
 
+    dispatchDocumentStateChange({ data: true });
+    await waitFor(() => instance?.getState().dirty === true);
+    blockProgrammaticSave = true;
+    const beforeNativeSave = serverMessages.length;
+    let nativeSaveSettled = false;
+    const nativeSaveRequest = postDownloadAs(
+      {
+        c: "save",
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
+        title: "New_Document.docx",
+      },
+      new TextEncoder().encode("DOCY;v5;native-toolbar-save"),
+    ).then((response) => {
+      nativeSaveSettled = true;
+      return response;
+    });
+    await waitFor(() => resolveBlockedSave);
+    assert(
+      !nativeSaveSettled,
+      "native toolbar Save acknowledged before external persistence settled",
+    );
+    blockProgrammaticSave = false;
+    resolveBlockedSave?.();
+    resolveBlockedSave = undefined;
+    const nativeSaveResponse = await nativeSaveRequest;
+    const nativeSaveResult = (await nativeSaveResponse.json()) as {
+      status?: unknown;
+    };
+    const nativeSaveMessage = await waitForSaveMessage(beforeNativeSave);
+    const nativeSaveMessageData = nativeSaveMessage.data as Record<string, unknown>;
+    await waitFor(() => instance?.getState().dirty === false);
+    assert(
+      nativeSaveResult.status === "ok" &&
+        nativeSaveMessageData.status === "ok" &&
+        Number(savedFiles.length) === 2 &&
+        savedFiles[1]!.name.toLowerCase().endsWith(".docx") &&
+        callbackInstance === instance,
+      "native toolbar Save did not persist through the compatibility onSave callback",
+    );
+    savedFiles.pop();
+
     const saveAsBytes = Uint8Array.from([11, 12, 13]);
     const beforeSaveAs = serverMessages.length;
     const exportSnapshotPromise = server.captureCurrentDocument(
@@ -1893,6 +1935,39 @@ async function testCompatibilityNativeOutputCallbacks() {
         Number(callbackErrors.length) === 2 &&
         callbackErrors[1]!.message === "programmatic persistence failed",
       "successful programmatic persistence did not release the dirty latch",
+    );
+
+    dispatchDocumentStateChange({ data: true });
+    await waitFor(() => instance?.getState().dirty === true);
+    rejectProgrammaticSave = true;
+    const beforeRejectedNativeSave = serverMessages.length;
+    const rejectedNativeResponse = await postDownloadAs(
+      {
+        c: "save",
+        savetype: AscSaveTypes.CompleteAll,
+        outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
+        title: "New_Document.docx",
+      },
+      new TextEncoder().encode("DOCY;v5;native-toolbar-save-rejected"),
+    );
+    const rejectedNativeResult = (await rejectedNativeResponse.json()) as {
+      status?: unknown;
+    };
+    const rejectedNativeMessage = await waitForSaveMessage(
+      beforeRejectedNativeSave,
+    );
+    const rejectedNativeMessageData = rejectedNativeMessage.data as Record<
+      string,
+      unknown
+    >;
+    rejectProgrammaticSave = false;
+    await delay(150);
+    assert(
+      rejectedNativeResult.status === "err" &&
+        rejectedNativeMessageData.status === "err" &&
+        instance.getState().dirty &&
+        callbackErrors.at(-1)?.message === "programmatic persistence failed",
+      "native toolbar Save failure was acknowledged or cleared dirty state",
     );
   } finally {
     if (converterPatched) converter.convert = originalConverterConvert;
