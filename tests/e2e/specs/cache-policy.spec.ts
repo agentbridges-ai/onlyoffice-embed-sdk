@@ -35,6 +35,33 @@ test("hosted resources use version-aware browser cache policies", async ({ reque
     "cross-origin",
   );
 
+  const zodiacRuntimeRoot =
+    `http://rat.onlyoffice.localhost:${appPort}/onlyoffice/runtime/${ONLYOFFICE_EMBED_HOST_BUILD_ID}`;
+  const zodiacApi = await request.get(
+    `${zodiacRuntimeRoot}/web-apps/apps/api/documents/api.js`,
+  );
+  expect(zodiacApi.status()).toBe(200);
+  expect(zodiacApi.headers()["cache-control"]).toBe(immutable);
+
+  const zodiacEditorShell = await request.get(
+    `${zodiacRuntimeRoot}/web-apps/apps/documenteditor/main/index.html`,
+  );
+  expect(zodiacEditorShell.status()).toBe(200);
+  expect(zodiacEditorShell.headers()["cache-control"]).toBe("no-store");
+  expect(await zodiacEditorShell.text()).toContain(
+    `<base href="http://onlyoffice.localhost:${appPort}/onlyoffice/runtime/${ONLYOFFICE_EMBED_HOST_BUILD_ID}/web-apps/apps/documenteditor/main/">`,
+  );
+
+  const zodiacRuntimeAsset = await request.get(
+    `${zodiacRuntimeRoot}/web-apps/vendor/requirejs/require.js`,
+    { maxRedirects: 0 },
+  );
+  expect(zodiacRuntimeAsset.status()).toBe(308);
+  expect(zodiacRuntimeAsset.headers()["cache-control"]).toBe(immutable);
+  expect(zodiacRuntimeAsset.headers().location).toBe(
+    `http://onlyoffice.localhost:${appPort}/onlyoffice/runtime/${ONLYOFFICE_EMBED_HOST_BUILD_ID}/web-apps/vendor/requirejs/require.js`,
+  );
+
   const x2t = await request.get("/onlyoffice/x2t/v9.3.0+4/x2t.js");
   expect(x2t.status()).toBe(200);
   expect(x2t.headers()["cache-control"]).toBe(immutable);

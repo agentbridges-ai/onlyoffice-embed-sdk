@@ -62,6 +62,72 @@ async function rewriteSubframeAssetUrls(
   });
 }
 
+const EDITOR_SHELL_PATH = new RegExp(
+  `^${VERSIONED_RUNTIME_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` +
+    "/web-apps/apps/(?:documenteditor|spreadsheeteditor|presentationeditor|pdfeditor|visioeditor|common)/" +
+    "(?:main|embed|mobile|forms)/(?:index|index_loader|index_internal)\\.html$",
+);
+
+const DOCS_API_PATH =
+  `${VERSIONED_RUNTIME_PREFIX}/web-apps/apps/api/documents/api.js`;
+
+function redirectZodiacRuntimeAsset(request: Request): Response | null {
+  const url = new URL(request.url);
+  const canonicalOrigin = canonicalStaticOrigin(url);
+  if (
+    !canonicalOrigin ||
+    !url.pathname.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`) ||
+    url.pathname === DOCS_API_PATH ||
+    EDITOR_SHELL_PATH.test(url.pathname) ||
+    (request.method !== "GET" && request.method !== "HEAD")
+  ) {
+    return null;
+  }
+
+  return new Response(null, {
+    status: 308,
+    headers: {
+      "Cache-Control": IMMUTABLE_CACHE_CONTROL,
+      Location: `${canonicalOrigin}${url.pathname}${url.search}`,
+    },
+  });
+}
+
+/**
+ * Keep the real editor document on its zodiac origin while resolving its
+ * relative, immutable UI/runtime assets against the canonical origin. The
+ * document URL remains same-origin with the compatibility host; only
+ * subresource URLs use the shared browser-cache key.
+ */
+async function rewriteEditorShellAssetBase(
+  request: Request,
+  response: Response,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const canonicalOrigin = canonicalStaticOrigin(url);
+  if (
+    !canonicalOrigin ||
+    !EDITOR_SHELL_PATH.test(url.pathname) ||
+    !response.headers.get("Content-Type")?.toLowerCase().startsWith("text/html")
+  ) {
+    return response;
+  }
+
+  const pathEnd = url.pathname.lastIndexOf("/") + 1;
+  const baseHref = `${canonicalOrigin}${url.pathname.slice(0, pathEnd)}`;
+  const html = (await response.text()).replace(
+    /<head(\s[^>]*)?>/i,
+    (head) => `${head}\n    <base href="${baseHref}">`,
+  );
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  return new Response(html, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function cacheControlFor(request: Request, response: Response) {
   const url = new URL(request.url);
   const contentType = response.headers.get("Content-Type") || "";
@@ -70,8 +136,19 @@ function cacheControlFor(request: Request, response: Response) {
   ) {
     return "no-store";
   }
+  if (response.status >= 300 && response.status < 400) {
+    const canonicalOrigin = canonicalStaticOrigin(url);
+    const location = response.headers.get("Location");
+    if (
+      canonicalOrigin &&
+      url.pathname.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`) &&
+      location?.startsWith(`${canonicalOrigin}${VERSIONED_RUNTIME_PREFIX}/`)
+    ) {
+      return IMMUTABLE_CACHE_CONTROL;
+    }
+    return "no-store";
+  }
   if (
-    (response.status >= 300 && response.status < 400) ||
     response.status >= 400 ||
     url.pathname === VERSION_API_PATH ||
     url.pathname === "/subframe" ||
@@ -188,9 +265,11 @@ export default createServerEntry({
   async fetch(request, options) {
     let response =
       fetchVersion(request) ??
+      redirectZodiacRuntimeAsset(request) ??
       (await fetchStaticResource(request)) ??
       (await handler.fetch(request, options));
     response = await rewriteSubframeAssetUrls(request, response);
+    response = await rewriteEditorShellAssetBase(request, response);
     const headers = new Headers(response.headers);
     const cacheControl = cacheControlFor(request, response);
     if (cacheControl) headers.set("Cache-Control", cacheControl);
@@ -202,6 +281,7 @@ export default createServerEntry({
     ) {
       headers.set("Access-Control-Allow-Origin", "*");
       headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+      headers.set("Timing-Allow-Origin", "*");
     }
     headers.set("Origin-Agent-Cluster", "?1");
 

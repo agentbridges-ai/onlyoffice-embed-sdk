@@ -62,6 +62,18 @@ async function waitFor(check: () => boolean, timeout = 1_000) {
   throw new Error("Timed out waiting for compatibility facade state");
 }
 
+async function pauseForBrowserCacheProbe(stage: "rat" | "ox") {
+  if (new URLSearchParams(window.location.search).get("cacheProbe") !== "1") {
+    return;
+  }
+  document.documentElement.dataset.onlyofficeCacheProbe = stage;
+  await waitFor(
+    () => document.documentElement.dataset.onlyofficeCacheProbeResume === stage,
+    15_000,
+  );
+  delete document.documentElement.dataset.onlyofficeCacheProbe;
+}
+
 function localBase() {
   return `${window.location.protocol}//onlyoffice.localhost:${window.location.port}`;
 }
@@ -556,6 +568,7 @@ export async function runRealCompatSubframeActivationTests(
         JSON.stringify(facade.HOSTED_COMPAT_SUBFRAME_IDENTITY),
       "real facade returned the wrong hosted identity",
     );
+    await pauseForBrowserCacheProbe("rat");
   });
   await run("real facade PDF print", async () => {
     assert(instance, "real facade instance is missing");
@@ -601,6 +614,7 @@ export async function runRealCompatSubframeActivationTests(
           legacyInstance.getState().fileName === "Example Title.doc",
         "legacy DOC did not reach ready through the hosted facade",
       );
+      await pauseForBrowserCacheProbe("ox");
       const exported = await legacyInstance.saveAs("docx");
       assert(
         exported.name.toLowerCase().endsWith(".docx") && exported.size > 0,

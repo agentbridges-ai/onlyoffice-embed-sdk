@@ -77,20 +77,22 @@ curl https://onlyoffice.agent-bridges.com/api/version
 ```json
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.3.2",
-  "release": "sdk-v0.3.2",
+  "version": "0.3.3",
+  "release": "sdk-v0.3.3",
   "hostIdentity": {
-    "packageVersion": "0.3.2",
-    "hostBuildId": "onlyoffice-embed-sdk-hosted-v4",
-    "assetManifestDigest": "075111692b617815b393d3f7a9bfd5e41c574f75bc7ebdf1fb9f493fad38ea5b"
+    "packageVersion": "0.3.3",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v5",
+    "assetManifestDigest": "19710b042f6f46844162ceb7fade7e184fc42fda966175ff711ee18794073061"
   },
   "runtimeManifest": {
-    "packageVersion": "0.3.2",
-    "hostBuildId": "onlyoffice-embed-sdk-hosted-v4",
+    "packageVersion": "0.3.3",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v5",
     "compatSubframeProtocol": 1,
     "compatSubframePath": "/subframe?runtime=compat",
     "canonicalResourceOrigin": "https://onlyoffice.agent-bridges.com",
-    "onlyofficeResourcePath": "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v4",
+    "editorFrameOrigin": "zodiac-slot",
+    "staticAssetOrigin": "canonical",
+    "onlyofficeResourcePath": "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v5",
     "onlyofficeVersion": "9.4.0-develop",
     "x2t": {
       "repository": "agentbridges-ai/onlyoffice-x2t-wasm",
