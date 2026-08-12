@@ -505,7 +505,7 @@ export function OnlyOfficeCompatSubframePage() {
           requireInstance().setReadonly(payload?.readonly as boolean);
           return requireInstance().getState();
         case "set-theme":
-          requireInstance().setInterfaceTheme(
+          await requireInstance().setInterfaceTheme(
             payload?.theme as CreateOfficeEditorOptions["interfaceTheme"],
           );
           return requireInstance().getState();

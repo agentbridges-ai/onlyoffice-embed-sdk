@@ -108,6 +108,16 @@ export type CreateEditorViewOptions = {
   officeXmlEvent?: OfficeXmlEventConfig;
 };
 
+type OnlyOfficeNativeThemeWindow = Window & {
+  Common?: {
+    UI?: {
+      Themes?: {
+        setTheme?: (theme: OfficeTheme, source?: string) => void;
+      };
+    };
+  };
+};
+
 function getFileType(fileName: string, fileType?: string) {
   return fileType || fileName.split(".").pop()?.toLowerCase() || "docx";
 }
@@ -2218,17 +2228,51 @@ export class EditorManager {
     return this.uiTheme;
   }
 
-  /** uiTheme 写在 iframe URL 参数里，运行时需 remount 才能生效。 */
+  /**
+   * Prefer the editor's native theme controller so a UI-only change does not
+   * capture the document, rebuild DocsAPI, or replace the editor iframe.
+   * Cross-origin editors expose the same controller through the strict bridge.
+   */
+  private async applyNativeInterfaceTheme(theme: OfficeTheme) {
+    if (this.isCdnMode()) {
+      const applied = await callCrossOriginEditor(
+        this.containerId,
+        CROSS_ORIGIN_EDITOR_COMMAND.INTERFACE_SET_THEME,
+        { theme },
+        5_000,
+        this.getOwnerWindow(),
+      );
+      return applied === theme;
+    }
+
+    const editorWindow = this.getEditorFrameElement()
+      ?.contentWindow as OnlyOfficeNativeThemeWindow | null;
+    const nativeThemes = editorWindow?.Common?.UI?.Themes;
+    if (typeof nativeThemes?.setTheme !== "function") {
+      return false;
+    }
+    nativeThemes.setTheme(theme, "sdk");
+    return true;
+  }
+
+  /** Apply modern light/dark in place, with remount only as a compatibility fallback. */
   async setTheme(theme: OfficeTheme) {
-    if (this.uiTheme === theme) {
-      return;
-    }
-
-    this.uiTheme = theme;
-
     if (!this.editor) {
+      this.uiTheme = theme;
       return;
     }
+
+    try {
+      if (await this.applyNativeInterfaceTheme(theme)) {
+        this.uiTheme = theme;
+        return;
+      }
+    } catch {
+      // Mixed-version or not-yet-ready editor frames use the existing safe
+      // remount path. Hosted releases normally stay on the native path.
+    }
+
+    const previousTheme = this.uiTheme;
 
     onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
       loading: true,
@@ -2236,7 +2280,11 @@ export class EditorManager {
 
     try {
       await this.captureDocumentIfDirty();
+      this.uiTheme = theme;
       this.remountDocEditor();
+    } catch (error) {
+      this.uiTheme = previousTheme;
+      throw error;
     } finally {
       onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE, {
         loading: false,

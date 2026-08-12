@@ -39,6 +39,8 @@ test("canonical cross-origin bridge matches the deployed asset", async () => {
   expect(source).toContain(
     'parsed.pathname.slice(-"/config.json".length) === "/config.json"',
   );
+  expect(source).toContain('INTERFACE_SET_THEME: "interface:set-theme"');
+  expect(source).toContain('themes.setTheme(interfaceTheme, "sdk")');
 });
 
 test("deployed x2t bytes match the immutable release lock", async () => {
@@ -136,8 +138,14 @@ test("hosted runtime exposes only modern interface themes", async () => {
     for (const id of forbiddenThemeIds) {
       expect(themeController).not.toContain(`"${id}":`);
     }
-    expect(cssSource).toContain(".theme-white");
-    expect(cssSource).toContain(".theme-night");
+    expect(cssSource).toContain(":root .theme-white{");
+    expect(cssSource).toContain(":root .theme-night{");
+    expect(cssSource).toContain(
+      ":root .theme-white{--toolbar-header-document:#f3f3f3",
+    );
+    expect(cssSource).toContain(
+      ":root .theme-night{--toolbar-header-document:#222222",
+    );
     expect(forbiddenThemeClass.test(cssSource)).toBe(false);
   }
 

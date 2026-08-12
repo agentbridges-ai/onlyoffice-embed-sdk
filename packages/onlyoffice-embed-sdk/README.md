@@ -213,12 +213,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.4.0`, the expected identity is:
+application's release manifest. For SDK `0.4.1`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.4.0",
-  "hostBuildId": "onlyoffice-embed-sdk-hosted-v6",
+  "packageVersion": "0.4.1",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v7",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -258,14 +258,19 @@ must enforce that binding. While an application continues to pass its old
 `OfficeHostIdentityMismatchError`; omitting `expectedHostIdentity` disables
 this equality check.
 
-## Interface themes in 0.4.0
+## Interface themes in 0.4.1
 
 The hosted editor exposes only the modern light and modern dark interface
 themes. Compatibility callers use `interfaceTheme: "light" | "dark"`; the
 corresponding ONLYOFFICE identifiers are `theme-white` and `theme-night`.
-Version 0.4.0 intentionally removes the former `"system"` option and the
+Version 0.4.1 intentionally removes the former `"system"` option and the
 legacy static theme registries/CSS from the hosted runtime. Document themes
 embedded in presentation files are unaffected.
+
+`setInterfaceTheme()` returns an awaitable result and applies the selected
+modern theme through ONLYOFFICE's native theme controller. The active editor
+frame is not reloaded. A safe document-preserving remount remains available
+only as a compatibility fallback for an older or not-yet-ready hosted runtime.
 
 ## Build and verify
 
@@ -283,7 +288,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.4.0`. The protected release workflow requires a GitHub-verified signed
+`sdk-v0.4.1`. The protected release workflow requires a GitHub-verified signed
 annotated tag on `main`, approval through the `npm-production` environment,
 and npm trusted publishing. It publishes the exact verified tarball with OIDC
 provenance; direct manual publication is not a supported release path.

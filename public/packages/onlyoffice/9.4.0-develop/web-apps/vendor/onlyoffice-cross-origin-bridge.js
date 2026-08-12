@@ -10,6 +10,7 @@
   };
   var EDITOR_COMMAND = {
     EDITOR_SUBSCRIBE: "editor:subscribe",
+    INTERFACE_SET_THEME: "interface:set-theme",
     DOCUMENT_PRINT_PDF: "document:print-pdf",
     DOCUMENT_RENAME: "document:rename",
     COMMENT_ADD: "comment:add",
@@ -1682,6 +1683,18 @@
     switch (command) {
       case EDITOR_COMMAND.EDITOR_SUBSCRIBE:
         return registerEditorCallback(api, payload && payload.event);
+      case EDITOR_COMMAND.INTERFACE_SET_THEME: {
+        var interfaceTheme = payload && payload.theme;
+        if (interfaceTheme !== "theme-white" && interfaceTheme !== "theme-night") {
+          throw new Error("Unsupported OnlyOffice interface theme");
+        }
+        var themes = window.Common && window.Common.UI && window.Common.UI.Themes;
+        if (!themes || typeof themes.setTheme !== "function") {
+          throw new Error("OnlyOffice native interface theme controller is not ready");
+        }
+        themes.setTheme(interfaceTheme, "sdk");
+        return interfaceTheme;
+      }
       case EDITOR_COMMAND.DOCUMENT_PRINT_PDF:
         if (typeof api.asc_nativeGetPDF !== "function") {
           throw new Error("OnlyOffice native PDF API is not available");

@@ -242,9 +242,21 @@ function pruneThemeCss(source, filePath) {
   if (forbiddenThemeClass.test(result)) {
     throw new Error(`Forbidden theme selector remains in ${filePath}`);
   }
-  for (const className of [".theme-white", ".theme-night"]) {
-    if (!result.includes(className)) {
-      throw new Error(`Required selector ${className} is missing from ${filePath}`);
+  const requiredModernThemeRules = [
+    [":root .theme-white{", "--toolbar-header-document:#f3f3f3"],
+    [":root .theme-night{", "--toolbar-header-document:#222222"],
+  ];
+  for (const [selector, requiredVariable] of requiredModernThemeRules) {
+    const selectorStart = result.indexOf(selector);
+    const ruleEnd = result.indexOf("}", selectorStart);
+    if (
+      selectorStart < 0 ||
+      ruleEnd < selectorStart ||
+      !result.slice(selectorStart, ruleEnd).includes(requiredVariable)
+    ) {
+      throw new Error(
+        `Required modern theme rule ${selector} is incomplete in ${filePath}`,
+      );
     }
   }
   return { result, ...stats };

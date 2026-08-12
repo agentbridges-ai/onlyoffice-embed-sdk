@@ -148,7 +148,7 @@ async function fetchPublicFile(url: string, fileName: string) {
   return new File([blob], fileName, { type: blob.type });
 }
 
-function frameOrigin(containerId: string) {
+function frameElement(containerId: string) {
   const frames = Array.from(
     document.querySelectorAll<HTMLIFrameElement>('iframe[name="frameEditor"]'),
   );
@@ -166,7 +166,11 @@ function frameOrigin(containerId: string) {
     }) ?? frames[0];
 
   assert(frame?.src, `Missing frameEditor iframe for ${containerId}`);
-  return new URL(frame.src, window.location.href).origin;
+  return frame;
+}
+
+function frameOrigin(containerId: string) {
+  return new URL(frameElement(containerId).src, window.location.href).origin;
 }
 
 async function assertExport(
@@ -590,15 +594,33 @@ export async function runScenario(
     );
     assert(manager.getLanguage() === nextLanguage, "setLanguage failed");
 
-    await withDocumentReady(
-      () => manager.setTheme(OFFICE_THEME.NIGHT),
-      "setTheme",
-      CONTAINER_IDS.factory,
-    );
+    const themeFrame = frameElement(CONTAINER_IDS.factory);
+    await manager.setTheme(OFFICE_THEME.NIGHT);
     assert(
       manager.getTheme() === (OFFICE_THEME.NIGHT as OfficeTheme),
       "setTheme failed",
     );
+    assert(
+      frameElement(CONTAINER_IDS.factory) === themeFrame,
+      "setTheme replaced the editor iframe",
+    );
+    if (mode === "local") {
+      assert(
+        themeFrame.contentDocument?.body.classList.contains("theme-night"),
+        "setTheme did not apply the native modern dark theme",
+      );
+    }
+    await manager.setTheme(OFFICE_THEME.WHITE);
+    assert(
+      frameElement(CONTAINER_IDS.factory) === themeFrame,
+      "setTheme(light) replaced the editor iframe",
+    );
+    if (mode === "local") {
+      assert(
+        themeFrame.contentDocument?.body.classList.contains("theme-white"),
+        "setTheme did not apply the native modern light theme",
+      );
+    }
 
     await manager.setReadOnly(true);
     assert(manager.getReadOnly(), "setReadOnly(true) failed");
