@@ -305,13 +305,7 @@ export interface X2tConvertResult {
   themes?: { [key: string]: Uint8Array };
 }
 
-export type OfficeTheme =
-  | "theme-light"
-  | "theme-classic-light"
-  | "theme-white"
-  | "theme-dark"
-  | "theme-night"
-  | "theme-contrast-dark";
+export type OfficeTheme = "theme-white" | "theme-night";
 
 export type EditorDocumentSnapshot = {
   fileName: string;

@@ -274,14 +274,10 @@ export class OnlyOfficeManager {
 
   /** 在浅色 / 深色主题之间切换 */
   async toggleTheme() {
-    const darkThemes: OfficeThemeId[] = [
-      OFFICE_THEME.DARK,
-      OFFICE_THEME.NIGHT,
-      OFFICE_THEME.CONTRAST_DARK,
-    ];
+    const darkThemes: OfficeThemeId[] = [OFFICE_THEME.NIGHT];
     const nextTheme = darkThemes.includes(this.getTheme() as OfficeThemeId)
       ? OFFICE_THEME.WHITE
-      : OFFICE_THEME.DARK;
+      : OFFICE_THEME.NIGHT;
     await this.setTheme(nextTheme);
     return nextTheme;
   }

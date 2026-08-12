@@ -42,12 +42,8 @@ OnlyOffice 编辑器界面主题（`customization.uiTheme`）。
 
 | 常量 | 值 | 说明 |
 |------|-----|------|
-| `OFFICE_THEME.WHITE` | `theme-white` | 浅色（**默认**） |
-| `OFFICE_THEME.CLASSIC_LIGHT` | `theme-classic-light` | 经典浅色 |
-| `OFFICE_THEME.LIGHT` | `theme-light` | Light |
-| `OFFICE_THEME.DARK` | `theme-dark` | 深色 |
-| `OFFICE_THEME.NIGHT` | `theme-night` | 夜间 |
-| `OFFICE_THEME.CONTRAST_DARK` | `theme-contrast-dark` | 高对比深色 |
+| `OFFICE_THEME.WHITE` | `theme-white` | 现代浅色（**默认**） |
+| `OFFICE_THEME.NIGHT` | `theme-night` | 现代深色 |
 
 相关导出：
 
@@ -157,7 +153,7 @@ type LoadingChangeData = {
 
 ### `OfficeTheme`
 
-编辑器界面主题 ID，与 `OFFICE_THEME` 常量值一致，例如 `"theme-white"`、`"theme-dark"`。类型自 `const/index.ts` 导出为 `OfficeThemeId`，在 `EditorManager` / `OnlyOfficeManager` 中写作 `OfficeTheme`。
+编辑器界面主题 ID，与 `OFFICE_THEME` 常量值一致，仅支持现代浅色 `"theme-white"` 与现代深色 `"theme-night"`。类型自 `const/index.ts` 导出为 `OfficeThemeId`，在 `EditorManager` / `OnlyOfficeManager` 中写作 `OfficeTheme`。
 
 ### `AscWordApiMethod`
 

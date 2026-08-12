@@ -78,23 +78,24 @@ curl https://onlyoffice.agent-bridges.com/api/version
 ```json
 {
   "name": "@agentbridges-ai/onlyoffice-embed-sdk",
-  "version": "0.3.3",
-  "release": "sdk-v0.3.3",
+  "version": "0.4.0",
+  "release": "sdk-v0.4.0",
   "hostIdentity": {
-    "packageVersion": "0.3.3",
-    "hostBuildId": "onlyoffice-embed-sdk-hosted-v5",
-    "assetManifestDigest": "19710b042f6f46844162ceb7fade7e184fc42fda966175ff711ee18794073061"
+    "packageVersion": "0.4.0",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v6",
+    "assetManifestDigest": "116bf7849bf450b43598bee17c2397537d72d253d39809d2e0ccf29548aa23b2"
   },
   "runtimeManifest": {
-    "packageVersion": "0.3.3",
-    "hostBuildId": "onlyoffice-embed-sdk-hosted-v5",
+    "packageVersion": "0.4.0",
+    "hostBuildId": "onlyoffice-embed-sdk-hosted-v6",
     "compatSubframeProtocol": 1,
     "compatSubframePath": "/subframe?runtime=compat",
     "canonicalResourceOrigin": "https://onlyoffice.agent-bridges.com",
     "editorFrameOrigin": "zodiac-slot",
     "staticAssetOrigin": "canonical",
-    "onlyofficeResourcePath": "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v5",
+    "onlyofficeResourcePath": "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v6",
     "onlyofficeVersion": "9.4.0-develop",
+    "interfaceThemes": ["theme-white", "theme-night"],
     "x2t": {
       "repository": "agentbridges-ai/onlyoffice-x2t-wasm",
       "tag": "v9.3.0+4",

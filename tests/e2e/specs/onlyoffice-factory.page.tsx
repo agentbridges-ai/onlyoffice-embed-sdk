@@ -591,12 +591,12 @@ export async function runScenario(
     assert(manager.getLanguage() === nextLanguage, "setLanguage failed");
 
     await withDocumentReady(
-      () => manager.setTheme(OFFICE_THEME.DARK),
+      () => manager.setTheme(OFFICE_THEME.NIGHT),
       "setTheme",
       CONTAINER_IDS.factory,
     );
     assert(
-      manager.getTheme() === (OFFICE_THEME.DARK as OfficeTheme),
+      manager.getTheme() === (OFFICE_THEME.NIGHT as OfficeTheme),
       "setTheme failed",
     );
 

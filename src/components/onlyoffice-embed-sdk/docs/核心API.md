@@ -144,7 +144,7 @@ import {
 const manager = await OnlyOfficeManager.create({
   fileType: FILE_TYPE.DOCX,
   defaultFileName: "New_Document.docx",
-  theme: OFFICE_THEME.DARK,
+  theme: OFFICE_THEME.NIGHT,
 });
 
 // 运行时切换

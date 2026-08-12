@@ -4,7 +4,11 @@ import { brotliDecompressSync } from "node:zlib";
 import path from "node:path";
 import { expect, test } from "playwright/test";
 import { ONLYOFFICE_X2T_RELEASE } from "../../../src/components/onlyoffice-embed-sdk/compat/version";
-import { STATIC_RESOURCE } from "../../../src/components/onlyoffice-embed-sdk/const";
+import {
+  OFFICE_THEME,
+  OFFICE_THEME_OPTIONS,
+  STATIC_RESOURCE,
+} from "../../../src/components/onlyoffice-embed-sdk/const";
 
 function sha256(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex");
@@ -71,4 +75,79 @@ test("deployed x2t bytes match the immutable release lock", async () => {
   expect(sha256(rawWasm)).toBe(
     ONLYOFFICE_X2T_RELEASE.files.wasmRawSha256,
   );
+});
+
+test("hosted runtime exposes only modern interface themes", async () => {
+  const root = process.cwd();
+  const runtimeRoot = path.join(
+    root,
+    "public/packages/onlyoffice/9.4.0-develop",
+  );
+  const forbiddenThemeClass =
+    /(^|[^a-z0-9_-])\.theme-(?:system|light|classic-light|dark|contrast-dark)(?![a-z0-9_-])/i;
+  const forbiddenThemeIds = [
+    "theme-system",
+    "theme-light",
+    "theme-classic-light",
+    "theme-dark",
+    "theme-contrast-dark",
+  ];
+
+  expect(OFFICE_THEME).toEqual({
+    WHITE: "theme-white",
+    NIGHT: "theme-night",
+  });
+  expect(OFFICE_THEME_OPTIONS.map(({ id }) => id)).toEqual([
+    "theme-white",
+    "theme-night",
+  ]);
+
+  for (const editor of [
+    "documenteditor",
+    "spreadsheeteditor",
+    "presentationeditor",
+  ]) {
+    const appSource = await readFile(
+      path.join(runtimeRoot, "web-apps/apps", editor, "main/app.js"),
+      "utf8",
+    );
+    const cssSource = await readFile(
+      path.join(
+        runtimeRoot,
+        "web-apps/apps",
+        editor,
+        "main/resources/css/app.css",
+      ),
+      "utf8",
+    );
+    const moduleStart = appSource.indexOf(
+      'define("common/main/lib/controller/Themes"',
+    );
+    const moduleEnd = appSource.indexOf(
+      'define("common/main/lib/util/utils"',
+      moduleStart,
+    );
+    const themeController = appSource.slice(moduleStart, moduleEnd);
+
+    expect(moduleStart).toBeGreaterThanOrEqual(0);
+    expect(moduleEnd).toBeGreaterThan(moduleStart);
+    expect(themeController).toContain('"theme-white":');
+    expect(themeController).toContain('"theme-night":');
+    for (const id of forbiddenThemeIds) {
+      expect(themeController).not.toContain(`"${id}":`);
+    }
+    expect(cssSource).toContain(".theme-white");
+    expect(cssSource).toContain(".theme-night");
+    expect(forbiddenThemeClass.test(cssSource)).toBe(false);
+  }
+
+  for (const relativePath of [
+    "themes.json",
+    "web-apps/apps/common/main/resources/themes/themes.json",
+  ]) {
+    const config = JSON.parse(
+      await readFile(path.join(runtimeRoot, relativePath), "utf8"),
+    );
+    expect(config).toEqual({ themes: [] });
+  }
 });
