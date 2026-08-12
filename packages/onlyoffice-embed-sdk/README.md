@@ -191,6 +191,15 @@ Each active editor needs a different slot origin. A slot can be reused only
 after its previous mount has been destroyed. Hosted subframes and all static
 resource responses include `Origin-Agent-Cluster: ?1`.
 
+Starting with `0.4.5`, `onLoadingChange` and `getLoadingState()` distinguish
+host/runtime activity from verified static-resource network transfers. Show a
+resource download prompt only while `resourceDownload` is `true`; repeated
+Performance entries with `transferSize === 0` are browser cache hits. The
+hosted runtime also overlaps DocsAPI bootstrap with File/URL source reads while
+keeping each x2t conversion in its own Worker. `setLanguage()` continues to use
+the safe remount fallback because upstream ONLYOFFICE does not expose a live UI
+locale refresh API.
+
 The hosted `HOSTED_COMPAT_SUBFRAME_IDENTITY` is published by
 `https://onlyoffice.agent-bridges.com/api/version`. Its digest is the SHA-256
 of the canonical `runtimeManifest` JSON returned by that endpoint, so a
@@ -219,12 +228,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.4.4`, the expected identity is:
+application's release manifest. For SDK `0.4.5`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.4.4",
-  "hostBuildId": "onlyoffice-embed-sdk-hosted-v10",
+  "packageVersion": "0.4.5",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v11",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -307,7 +316,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.4.4`. The protected release workflow requires a GitHub-verified signed
+`sdk-v0.4.5`. The protected release workflow requires a GitHub-verified signed
 annotated tag on `main`, approval through the `npm-production` environment,
 and npm trusted publishing. It publishes the exact verified tarball with OIDC
 provenance; direct manual publication is not a supported release path.

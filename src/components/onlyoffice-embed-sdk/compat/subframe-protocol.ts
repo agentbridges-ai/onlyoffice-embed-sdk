@@ -3,6 +3,7 @@ import type {
   OfficeEditorState,
   OfficeHostIdentity,
   OfficeInterfaceTheme,
+  OfficeLoadingState,
   OfficePluginOptions,
   OfficeSaveBehavior,
   OfficeSaveToNewFormatConfirmationOptions,
@@ -113,6 +114,32 @@ export type CompatSubframeEventMessage = CompatSubframeEnvelope & {
   event: CompatSubframeEventName;
   payload?: unknown;
 };
+
+function isLoadingState(value: unknown): value is OfficeLoadingState {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.loading === "boolean" &&
+    [
+      "host-loading",
+      "runtime-loading",
+      "static-resources",
+      "operation",
+      "ready",
+      "error",
+      "destroyed",
+    ].includes(String(value.phase)) &&
+    ["checking", "cache-hit", "downloading", "downloaded", "not-observed"].includes(
+      String(value.resourceStatus),
+    ) &&
+    typeof value.resourceDownload === "boolean" &&
+    typeof value.transferredBytes === "number" &&
+    Number.isFinite(value.transferredBytes) &&
+    value.transferredBytes >= 0 &&
+    typeof value.resourceCount === "number" &&
+    Number.isInteger(value.resourceCount) &&
+    value.resourceCount >= 0
+  );
+}
 
 export type CompatSubframeCallbackName = "save" | "save-as" | "download";
 
@@ -298,7 +325,7 @@ export function isCompatSubframeChildMessage(
   if (value.type === "event") {
     if (typeof value.event !== "string" || !EVENTS.has(value.event)) return false;
     if (value.event === "loading-change") {
-      return isRecord(value.payload) && typeof value.payload.loading === "boolean";
+      return isLoadingState(value.payload);
     }
     if (value.event === "plugin-ready") {
       return (

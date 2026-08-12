@@ -20,6 +20,20 @@ const REVALIDATED_CACHE_CONTROL =
 const ZODIAC_SLOT_PATTERN =
   /^(?:rat|ox|tiger|rabbit|dragon|snake|horse|goat|monkey|rooster|dog|pig)\./;
 
+function removeVaryOrigin(headers: Headers) {
+  const vary = headers.get("Vary");
+  if (!vary) return;
+  const values = vary
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value && value.toLowerCase() !== "origin");
+  if (values.length > 0) {
+    headers.set("Vary", values.join(", "));
+  } else {
+    headers.delete("Vary");
+  }
+}
+
 function canonicalStaticOrigin(url: URL) {
   if (
     ZODIAC_SLOT_PATTERN.test(url.hostname) &&
@@ -93,6 +107,28 @@ function redirectZodiacRuntimeAsset(request: Request): Response | null {
   });
 }
 
+function redirectDevelopmentRuntimeAsset(request: Request): Response | null {
+  if (!import.meta.env.DEV) return null;
+  const url = new URL(request.url);
+  if (
+    url.hostname !== "onlyoffice.localhost" ||
+    !url.pathname.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`) ||
+    (request.method !== "GET" && request.method !== "HEAD")
+  ) {
+    return null;
+  }
+  const sourcePath =
+    `/packages${SOURCE_RUNTIME_PREFIX}` +
+    url.pathname.slice(VERSIONED_RUNTIME_PREFIX.length);
+  return new Response(null, {
+    status: 307,
+    headers: {
+      "Cache-Control": IMMUTABLE_CACHE_CONTROL,
+      Location: `${url.origin}${sourcePath}${url.search}`,
+    },
+  });
+}
+
 /**
  * Keep the real editor document on its zodiac origin while resolving its
  * relative, immutable UI/runtime assets against the canonical origin. The
@@ -143,6 +179,14 @@ function cacheControlFor(request: Request, response: Response) {
       canonicalOrigin &&
       url.pathname.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`) &&
       location?.startsWith(`${canonicalOrigin}${VERSIONED_RUNTIME_PREFIX}/`)
+    ) {
+      return IMMUTABLE_CACHE_CONTROL;
+    }
+    if (
+      import.meta.env.DEV &&
+      url.hostname === "onlyoffice.localhost" &&
+      url.pathname.startsWith(`${VERSIONED_RUNTIME_PREFIX}/`) &&
+      location?.startsWith(`${url.origin}/packages${SOURCE_RUNTIME_PREFIX}/`)
     ) {
       return IMMUTABLE_CACHE_CONTROL;
     }
@@ -266,6 +310,7 @@ export default createServerEntry({
     let response =
       fetchVersion(request) ??
       redirectZodiacRuntimeAsset(request) ??
+      redirectDevelopmentRuntimeAsset(request) ??
       (await fetchStaticResource(request)) ??
       (await handler.fetch(request, options));
     response = await rewriteSubframeAssetUrls(request, response);
@@ -280,6 +325,7 @@ export default createServerEntry({
       pathname.startsWith("/packages/onlyoffice/")
     ) {
       headers.set("Access-Control-Allow-Origin", "*");
+      removeVaryOrigin(headers);
       headers.set("Cross-Origin-Resource-Policy", "cross-origin");
       headers.set("Timing-Allow-Origin", "*");
     }

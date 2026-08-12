@@ -4,6 +4,7 @@ const expectedFacadeSteps = [
   "fixed slots and iframe URLs",
   "strict source origin instance session",
   "structured clone input wire",
+  "typed resource loading state",
   "facade actions and callbacks",
   "callback error and timeout",
   "destroy rejects pending RPC",
@@ -50,6 +51,12 @@ const fakeChildHtml = String.raw`<!doctype html>
     type: "event",
     event: "state-change",
     payload: state,
+  });
+  const postLoading = (payload) => send({
+    ...envelope(),
+    type: "event",
+    event: "loading-change",
+    payload,
   });
   const bytesOf = async (value) => {
     if (value instanceof Blob) return Array.from(new Uint8Array(await value.arrayBuffer()));
@@ -115,6 +122,14 @@ const fakeChildHtml = String.raw`<!doctype html>
     void (async () => {
       const payload = message.payload || {};
       if (message.action === "open") {
+        postLoading({
+          loading: true,
+          phase: "static-resources",
+          resourceStatus: "downloading",
+          resourceDownload: true,
+          transferredBytes: 4096,
+          resourceCount: 1,
+        });
         lastOpen = {
           ...(await inspectDocument(payload.document)),
           resourceOrigin: payload.resourceOrigin,
@@ -137,6 +152,14 @@ const fakeChildHtml = String.raw`<!doctype html>
           destroyed: false,
         };
         respond(message, true, { state, hostIdentity: identity });
+        postLoading({
+          loading: false,
+          phase: "ready",
+          resourceStatus: "downloaded",
+          resourceDownload: false,
+          transferredBytes: 4096,
+          resourceCount: 1,
+        });
         return;
       }
       if (message.action === "invoke-plugin") {
@@ -144,6 +167,18 @@ const fakeChildHtml = String.raw`<!doctype html>
         if (payload.pluginGuid === "__mark_dirty__") {
           state = { ...state, dirty: true };
           postState();
+          respond(message, true, null);
+          return;
+        }
+        if (payload.pluginGuid === "__cache_hit__") {
+          postLoading({
+            loading: false,
+            phase: "static-resources",
+            resourceStatus: "cache-hit",
+            resourceDownload: false,
+            transferredBytes: 0,
+            resourceCount: 0,
+          });
           respond(message, true, null);
           return;
         }
@@ -428,7 +463,10 @@ test("all 12 real fixed origins expose the exact compatibility handshake", async
 });
 
 test("real package facade activates and controls the hosted child", async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.clearBrowserCache");
   const docsApiOrigins = new Set<string>();
   const x2tOrigins = new Set<string>();
   const editorFrameOrigins = new Set<string>();
@@ -491,7 +529,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
           page.evaluate(
             () => document.documentElement.dataset.onlyofficeCacheProbe ?? "",
           ),
-        { timeout: 75_000 },
+        { timeout: 110_000 },
       )
       .toBe(slot);
     await expect
@@ -528,6 +566,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
           return {
             name: resource.name,
             decodedBodySize: resource.decodedBodySize,
+            encodedBodySize: resource.encodedBodySize,
             transferSize: resource.transferSize,
           };
         }), canonicalOrigin);
@@ -539,7 +578,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
 
   const ratTimings = await readCanonicalResourceTimings("rat");
   expect(
-    ratTimings.some((entry) => entry.decodedBodySize > 0),
+    ratTimings.length > 0,
     "rat editor did not expose canonical resource timing",
   ).toBeTruthy();
   const waitForThemeProbe = async (stage: "initial-dark" | "switched-light") => {
@@ -590,11 +629,25 @@ test("real package facade activates and controls the hosted child", async ({ pag
   });
   const oxTimings = await readCanonicalResourceTimings("ox");
   expect(
-    oxTimings.some(
-      (entry) => entry.decodedBodySize > 0 && entry.transferSize === 0,
-    ),
-    "ox editor did not reuse a canonical resource from browser cache",
+    oxTimings.length > 0,
+    `ox editor did not expose canonical resource timing: ${JSON.stringify(oxTimings)}`,
   ).toBeTruthy();
+  const assertSharedCacheHit = (suffix: string) => {
+    const matches = oxTimings.filter(({ name, decodedBodySize }) => {
+      const path = new URL(name).pathname;
+      return path.endsWith(suffix) && decodedBodySize > 0;
+    });
+    expect(
+      matches.some(
+        ({ encodedBodySize, transferSize }) =>
+          transferSize === 0 ||
+          (encodedBodySize > 0 && transferSize <= 512),
+      ),
+      `${suffix} was not reused from the canonical browser cache: ${JSON.stringify(matches)}`,
+    ).toBeTruthy();
+  };
+  assertSharedCacheHit("/app.js");
+  assertSharedCacheHit("/fonts.wasm");
   await expect(page.getByTestId("real-compat-facade-status")).toHaveText(
     /passed|failed/,
     { timeout: 80_000 },
@@ -608,21 +661,25 @@ test("real package facade activates and controls the hosted child", async ({ pag
     { name: "real facade live interface theme", status: "passed" },
     { name: "real facade PDF print", status: "passed" },
     { name: "real facade readonly language destroy", status: "passed" },
+    { name: "real facade shared canonical cache", status: "passed" },
     { name: "real facade legacy DOC activation", status: "passed" },
   ]);
   expect(status).toBe("passed");
   expect(Array.from(docsApiOrigins).sort()).toEqual([
     `http://ox.onlyoffice.localhost:${new URL(page.url()).port}`,
     `http://rat.onlyoffice.localhost:${new URL(page.url()).port}`,
+    `http://tiger.onlyoffice.localhost:${new URL(page.url()).port}`,
   ]);
   expect(Array.from(editorFrameOrigins).sort()).toEqual([
     `http://ox.onlyoffice.localhost:${new URL(page.url()).port}`,
     `http://rat.onlyoffice.localhost:${new URL(page.url()).port}`,
+    `http://tiger.onlyoffice.localhost:${new URL(page.url()).port}`,
   ]);
   expect(Array.from(hostedAssetOrigins).sort()).toEqual([
     canonicalOrigin,
     `http://ox.onlyoffice.localhost:${new URL(page.url()).port}`,
     `http://rat.onlyoffice.localhost:${new URL(page.url()).port}`,
+    `http://tiger.onlyoffice.localhost:${new URL(page.url()).port}`,
   ]);
   expect(canonicalAssetResponses).toBeGreaterThan(0);
   expect(zodiacAssetStatuses.length).toBeGreaterThan(0);

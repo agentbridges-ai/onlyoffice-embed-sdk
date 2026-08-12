@@ -658,6 +658,77 @@ export const CROSS_ORIGIN_EDITOR_EVENT = {
   DOCUMENT_MODIFIED_CHANGED: "asc_onDocumentModifiedChanged",
 } as const;
 
+export const OFFICE_RESOURCE_OBSERVER_SOURCE =
+  "onlyoffice-resource-observer" as const;
+const OFFICE_RESOURCE_OBSERVER_PARENT_SOURCE =
+  "onlyoffice-resource-observer-parent" as const;
+
+export function subscribeEditorResourceLoading(
+  frameEditorId: string,
+  getIframe: () => HTMLIFrameElement | null | undefined,
+  handler: (state: unknown) => void,
+  ownerWindow: Window = window,
+) {
+  let requestTimer: number | undefined;
+  let requestDeadlineTimer: number | undefined;
+  const stopRequesting = () => {
+    if (requestTimer !== undefined) ownerWindow.clearInterval(requestTimer);
+    if (requestDeadlineTimer !== undefined) {
+      ownerWindow.clearTimeout(requestDeadlineTimer);
+    }
+    requestTimer = undefined;
+    requestDeadlineTimer = undefined;
+  };
+  const listener = (event: MessageEvent) => {
+    const iframe = getIframe();
+    const message = event.data;
+    if (
+      !iframe?.contentWindow ||
+      event.source !== iframe.contentWindow ||
+      !message ||
+      message.source !== OFFICE_RESOURCE_OBSERVER_SOURCE ||
+      message.frameEditorId !== frameEditorId
+    ) {
+      return;
+    }
+    let expectedOrigin: string;
+    try {
+      expectedOrigin = new URL(iframe.src, ownerWindow.document.baseURI).origin;
+    } catch {
+      return;
+    }
+    if (event.origin !== expectedOrigin) return;
+    stopRequesting();
+    handler(message.state);
+  };
+  ownerWindow.addEventListener("message", listener);
+  const requestCurrentState = () => {
+    const iframe = getIframe();
+    if (!iframe?.contentWindow) return;
+    let expectedOrigin: string;
+    try {
+      expectedOrigin = new URL(iframe.src, ownerWindow.document.baseURI).origin;
+    } catch {
+      return;
+    }
+    iframe.contentWindow.postMessage(
+      {
+        source: OFFICE_RESOURCE_OBSERVER_PARENT_SOURCE,
+        type: "get-state",
+        frameEditorId,
+      },
+      expectedOrigin,
+    );
+  };
+  requestCurrentState();
+  requestTimer = ownerWindow.setInterval(requestCurrentState, 50);
+  requestDeadlineTimer = ownerWindow.setTimeout(stopRequesting, 10_000);
+  return () => {
+    stopRequesting();
+    ownerWindow.removeEventListener("message", listener);
+  };
+}
+
 export function shouldBypassOnlyOfficeProxy(url: string, baseUrl: string) {
   const pathname = new URL(url, baseUrl).pathname;
 

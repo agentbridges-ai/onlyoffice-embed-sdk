@@ -380,7 +380,14 @@ export function OnlyOfficeCompatSubframePage() {
       openInFlight = true;
       const ownGeneration = ++generation;
       callbackCapabilities = { ...payload.callbacks };
-      postEvent("loading-change", { loading: true });
+      postEvent("loading-change", {
+        loading: true,
+        phase: "runtime-loading",
+        resourceStatus: "checking",
+        resourceDownload: false,
+        transferredBytes: 0,
+        resourceCount: 0,
+      });
       try {
         registerOnlyOfficeStaticResource({
           cdnOrigin: payload.resourceOrigin,
@@ -428,6 +435,7 @@ export function OnlyOfficeCompatSubframePage() {
             postEvent("dirty-change", { dirty, state: editor.getState() });
           },
           onStateChange: (state) => postEvent("state-change", state),
+          onLoadingChange: (state) => postEvent("loading-change", state),
           onError: (error) => postEvent("error", serializeCompatSubframeError(error)),
           onSave: async (file) => {
             if (explicitOutput) return true;
@@ -474,7 +482,16 @@ export function OnlyOfficeCompatSubframePage() {
         };
       } finally {
         openInFlight = false;
-        postEvent("loading-change", { loading: false });
+        if (!instance) {
+          postEvent("loading-change", {
+            loading: false,
+            phase: "error",
+            resourceStatus: "not-observed",
+            resourceDownload: false,
+            transferredBytes: 0,
+            resourceCount: 0,
+          });
+        }
       }
     };
 

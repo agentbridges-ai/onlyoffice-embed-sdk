@@ -12,6 +12,7 @@ const expectedSteps = [
   "compatibility facade contracts",
   "native print frame load gate",
   "native preview print logo configuration",
+  "DocsAPI initialization overlaps source read",
   "compatibility native output callbacks",
   "cross-document compat mount",
 ];

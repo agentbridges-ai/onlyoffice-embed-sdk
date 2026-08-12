@@ -9,7 +9,12 @@ import {
   type EditorDocumentExport,
   type EditorManager,
 } from "../core/editor-manager";
-import { onlyofficeEventbus } from "../core/eventbus";
+import {
+  onlyofficeEventbus,
+  type LoadingChangeData,
+  type OfficeLoadingPhase,
+  type OfficeResourceLoadStatus,
+} from "../core/eventbus";
 import type {
   EditorDownloadOutput,
   OnlyOfficePluginOptions,
@@ -45,6 +50,18 @@ export type OfficePluginOptions = OnlyOfficePluginOptions;
 export type OfficeSaveCallbackResult = void | boolean;
 export type OfficeSaveAsCallbackResult = void | boolean;
 export type OfficeDownloadCallbackResult = void;
+
+export type { OfficeLoadingPhase, OfficeResourceLoadStatus };
+
+export type OfficeLoadingState = Pick<
+  LoadingChangeData,
+  | "loading"
+  | "phase"
+  | "resourceStatus"
+  | "resourceDownload"
+  | "transferredBytes"
+  | "resourceCount"
+>;
 
 export type OfficeSaveToNewFormatConfirmationOptions = {
   title?: string;
@@ -125,6 +142,15 @@ export interface CreateOfficeEditorOptions {
     state: OfficeEditorState,
     instance: OfficeEditorInstance,
   ) => void | Promise<void>;
+  /**
+   * Reports host/runtime activity separately from verified static-resource
+   * downloads. Show a resource download prompt only while
+   * `state.resourceDownload` is true.
+   */
+  onLoadingChange?: (
+    state: OfficeLoadingState,
+    instance: OfficeEditorInstance,
+  ) => void | Promise<void>;
   onError?: (error: Error, instance?: OfficeEditorInstance) => void;
 }
 
@@ -162,6 +188,7 @@ export interface OfficeEditorInstance {
   setLanguage(lang: string): Promise<void>;
   destroy(): Promise<void>;
   getState(): OfficeEditorState;
+  getLoadingState(): OfficeLoadingState;
   getHostIdentity(): OfficeHostIdentity;
 }
 
@@ -185,6 +212,7 @@ export interface OfficeEditorMount {
   activate(): Promise<OfficeEditorInstance>;
   destroy(): Promise<void>;
   getState(): OfficeEditorMountState;
+  getLoadingState(): OfficeLoadingState;
 }
 
 export class OfficeHostIdentityMismatchError extends Error {
@@ -667,6 +695,15 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
   private printPromise: Promise<File> | null = null;
   private destroyed = false;
   private returnsToPreview: boolean;
+  private loadingEventHandler: ((data: LoadingChangeData) => void) | null = null;
+  private loadingState: OfficeLoadingState = {
+    loading: true,
+    phase: "host-loading",
+    resourceStatus: "checking",
+    resourceDownload: false,
+    transferredBytes: 0,
+    resourceCount: 0,
+  };
 
   constructor(
     container: HTMLElement,
@@ -691,6 +728,9 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     container.style.height ||= "100%";
     container.style.minWidth ||= "0";
     container.style.minHeight ||= "0";
+    this.ownerWindow.queueMicrotask(() => {
+      if (!this.destroyed) this.notifyLoadingChange(this.loadingState);
+    });
   }
 
   activate(): Promise<OfficeEditorInstance> {
@@ -700,6 +740,7 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     }
 
     this.mountPhase = "runtime-loading";
+    this.updateLoadingState({ loading: true, phase: "runtime-loading" });
     this.activationPromise = this.activateInternal().catch(async (error) => {
       const normalized = toError(error);
       this.mountPhase = "error";
@@ -763,6 +804,21 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     }
 
     this.manager = editorManagerFactory.get(this.container);
+    this.loadingEventHandler = (data) => {
+      if (data.manager !== this.manager || this.destroyed) return;
+      this.updateLoadingState({
+        loading: data.loading,
+        phase: data.phase,
+        resourceStatus: data.resourceStatus,
+        resourceDownload: data.resourceDownload,
+        transferredBytes: data.transferredBytes,
+        resourceCount: data.resourceCount,
+      });
+    };
+    onlyofficeEventbus.on(
+      ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE,
+      this.loadingEventHandler,
+    );
     this.readyWaiter = makeReadyWaiter(
       this.ownerWindow,
       this.containerId,
@@ -802,6 +858,7 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
 
     this.mountPhase = "ready";
     this.updateState({ status: "ready", dirty: this.manager.isDirty() });
+    this.updateLoadingState({ loading: false, phase: "ready", resourceDownload: false });
     this.startDirtyPolling();
     try {
       this.options.onReady?.(this);
@@ -880,6 +937,10 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
       phase: this.mountPhase,
       ...(this.mountError ? { error: this.mountError } : {}),
     };
+  }
+
+  getLoadingState(): OfficeLoadingState {
+    return { ...this.loadingState };
   }
 
   invokePlugin(pluginGuid: string, payload: unknown): Promise<unknown> {
@@ -1232,6 +1293,13 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     this.destroyed = true;
     this.readyWaiter?.cancel();
     this.readyWaiter = null;
+    if (this.loadingEventHandler) {
+      onlyofficeEventbus.off(
+        ONLYOFFICE_EVENT_KEYS.LOADING_CHANGE,
+        this.loadingEventHandler,
+      );
+      this.loadingEventHandler = null;
+    }
     if (this.dirtyPollTimer !== null) {
       this.ownerWindow.clearInterval(this.dirtyPollTimer);
       this.dirtyPollTimer = null;
@@ -1258,6 +1326,34 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
     if (markDestroyed) {
       this.persistenceDirty = false;
       this.updateState({ status: "destroyed", destroyed: true, dirty: false });
+      this.updateLoadingState({
+        loading: false,
+        phase: "destroyed",
+        resourceDownload: false,
+      });
+    }
+  }
+
+  private updateLoadingState(patch: Partial<OfficeLoadingState>) {
+    const next = { ...this.loadingState, ...patch };
+    const changed = Object.keys(patch).some(
+      (key) =>
+        next[key as keyof OfficeLoadingState] !==
+        this.loadingState[key as keyof OfficeLoadingState],
+    );
+    this.loadingState = next;
+    if (changed) this.notifyLoadingChange(next);
+  }
+
+  private notifyLoadingChange(state: OfficeLoadingState) {
+    try {
+      void Promise.resolve(
+        this.options.onLoadingChange?.({ ...state }, this),
+      ).catch((error) =>
+        notifyOfficeEditorError(this.options.onError, toError(error), this),
+      );
+    } catch (error) {
+      notifyOfficeEditorError(this.options.onError, toError(error), this);
     }
   }
 
@@ -1334,6 +1430,7 @@ export function mountOfficeEditor(
       activate: () => instance.activate(),
       destroy: () => instance.destroy(),
       getState: () => instance.getMountState(),
+      getLoadingState: () => instance.getLoadingState(),
     };
   } catch (error) {
     const normalized = toError(error);

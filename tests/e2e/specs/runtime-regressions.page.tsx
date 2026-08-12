@@ -1308,6 +1308,126 @@ async function testNativeEditorConfiguration() {
   }
 }
 
+async function testDocsApiInitializationOverlapsSourceRead() {
+  const popup = window.open(
+    "about:blank",
+    `onlyoffice-startup-overlap-${Date.now()}`,
+    "popup,width=640,height=480",
+  );
+  assert(popup, "startup-overlap popup Window was blocked");
+
+  const container = popup.document.createElement("div");
+  container.id = `startup-overlap-host-${Date.now()}`;
+  popup.document.body.appendChild(container);
+  const manager = new EditorManager(container);
+  const server = (manager as any).server as {
+    open: (file: File) => Promise<unknown>;
+  };
+
+  let releaseSourceRead!: () => void;
+  const sourceReadGate = new Promise<void>((resolve) => {
+    releaseSourceRead = resolve;
+  });
+  let sourceReadStarted = false;
+  let sourceReadFinished = false;
+  const sourceFile = new File(["startup overlap"], "Overlap.docx");
+  Object.defineProperty(sourceFile, "arrayBuffer", {
+    configurable: true,
+    value: async () => {
+      sourceReadStarted = true;
+      await sourceReadGate;
+      sourceReadFinished = true;
+      return new TextEncoder().encode("startup overlap").buffer;
+    },
+  });
+  server.open = async (file) => {
+    await file.arrayBuffer();
+    return {};
+  };
+
+  type StartupConfig = { events?: { onDocumentReady?: () => void } };
+  class FakeDocEditor {
+    static version() {
+      return "startup-overlap-fake";
+    }
+
+    private readonly iframe: HTMLIFrameElement;
+
+    constructor(id: string | undefined, config: StartupConfig) {
+      const host = popup.document.getElementById(id ?? "");
+      if (!host) throw new Error("startup DocsAPI received the wrong container");
+      this.iframe = popup.document.createElement("iframe");
+      this.iframe.name = "frameEditor";
+      this.iframe.srcdoc = "<!doctype html><title>startup overlap</title>";
+      host.appendChild(this.iframe);
+      popup.setTimeout(() => config.events?.onDocumentReady?.(), 0);
+    }
+
+    destroyEditor() {
+      this.iframe.remove();
+    }
+  }
+
+  const originalAppendChild = popup.document.head.appendChild.bind(
+    popup.document.head,
+  );
+  let docsApiScript: HTMLScriptElement | undefined;
+  popup.document.head.appendChild = ((node: Node) => {
+    if (
+      node.nodeName === "SCRIPT" &&
+      (node as HTMLScriptElement).src.includes(
+        "/web-apps/apps/api/documents/api.js",
+      )
+    ) {
+      docsApiScript = node as HTMLScriptElement;
+      return node;
+    }
+    return originalAppendChild(node);
+  }) as typeof popup.document.head.appendChild;
+
+  try {
+    const activation = manager.create({
+      container,
+      file: sourceFile,
+      fileName: sourceFile.name,
+      fileType: "docx",
+      isNew: false,
+    });
+    await waitFor(() => (sourceReadStarted && docsApiScript ? true : undefined));
+    assert(
+      !sourceReadFinished,
+      "source bytes finished before the startup overlap could be observed",
+    );
+    assert(
+      docsApiScript,
+      "DocsAPI initialization did not start while File.arrayBuffer was pending",
+    );
+
+    popup.DocsAPI = {
+      DocEditor: FakeDocEditor as unknown as DocEditorConstructor,
+    };
+    docsApiScript.dispatchEvent(new Event("load"));
+    releaseSourceRead();
+    await activation;
+
+    const phases = manager
+      .getLogger()
+      .getEntries()
+      .filter((entry) => entry.message === "startup-phase")
+      .map((entry) => (entry.details[0] as { phase?: string }).phase);
+    assert(
+      phases.includes("document-source-ready") &&
+        phases.includes("docs-api-ready") &&
+        phases.includes("editor-mounted"),
+      `startup diagnostics omitted a phase: ${JSON.stringify(phases)}`,
+    );
+  } finally {
+    popup.document.head.appendChild = originalAppendChild;
+    manager.destroy();
+    popup.close();
+  }
+}
+
 async function testCompatibilityNativeOutputCallbacks() {
   const popup = window.open(
     "about:blank",
@@ -1678,6 +1798,7 @@ async function testCompatibilityNativeOutputCallbacks() {
       dispatchDocumentStateChange,
       "fake editor did not expose document dirty events",
     );
+
     dispatchDocumentStateChange({ data: true });
     await waitFor(() => instance?.getState().dirty === true);
 
@@ -2185,6 +2306,10 @@ const regressionTests = [
   ["compatibility facade contracts", testCompatibilityFacadeContracts],
   ["native print frame load gate", testNativePrintFrameLoadGate],
   ["native preview print logo configuration", testNativeEditorConfiguration],
+  [
+    "DocsAPI initialization overlaps source read",
+    testDocsApiInitializationOverlapsSourceRead,
+  ],
   [
     "compatibility native output callbacks",
     testCompatibilityNativeOutputCallbacks,

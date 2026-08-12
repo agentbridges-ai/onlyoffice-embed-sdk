@@ -41,6 +41,8 @@ test("canonical cross-origin bridge matches the deployed asset", async () => {
   );
   expect(source).toContain('INTERFACE_SET_THEME: "interface:set-theme"');
   expect(source).toContain('themes.setTheme(interfaceTheme, "sdk")');
+  expect(source).toContain('"onlyoffice-resource-observer-parent"');
+  expect(source).toContain('message.type !== "get-state"');
   expect(source).toContain("var printNavigationPending = true");
   expect(source).toContain("if (printNavigationPending)");
   expect(source).toContain("printNavigationPending = false");

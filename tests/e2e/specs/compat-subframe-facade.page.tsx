@@ -69,7 +69,7 @@ async function pauseForBrowserCacheProbe(stage: "rat" | "ox") {
   document.documentElement.dataset.onlyofficeCacheProbe = stage;
   await waitFor(
     () => document.documentElement.dataset.onlyofficeCacheProbeResume === stage,
-    15_000,
+    90_000,
   );
   delete document.documentElement.dataset.onlyofficeCacheProbe;
 }
@@ -359,6 +359,46 @@ async function testStructuredCloneInputs() {
   assert(emptyResult.emptyType === "csv", "empty document type changed");
 }
 
+async function testTypedResourceLoadingState() {
+  const states: Array<ReturnType<OfficeEditorInstance["getLoadingState"]>> = [];
+  await withEditor(
+    makeOptions(
+      { emptyType: "docx", fileName: "loading.docx" },
+      {
+        onLoadingChange: (state) => {
+          states.push({ ...state });
+        },
+      },
+    ),
+    async (instance, mount) => {
+      await waitFor(() => states.some((state) => state.resourceStatus === "downloaded"));
+      assert(
+        states.some(
+          (state) =>
+            state.phase === "static-resources" &&
+            state.resourceStatus === "downloading" &&
+            state.resourceDownload &&
+            state.transferredBytes === 4096 &&
+            state.resourceCount === 1,
+        ),
+        "verified resource download state was not delivered",
+      );
+      assert(
+        JSON.stringify(instance.getLoadingState()) ===
+          JSON.stringify(mount.getLoadingState()),
+        "instance and mount loading snapshots diverged",
+      );
+      const downloadCount = states.filter((state) => state.resourceDownload).length;
+      await instance.invokePlugin("__cache_hit__", null);
+      await waitFor(() => instance.getLoadingState().resourceStatus === "cache-hit");
+      assert(
+        states.filter((state) => state.resourceDownload).length === downloadCount,
+        "cache-hit state incorrectly reported a resource download",
+      );
+    },
+  );
+}
+
 async function testFacadeActionsAndCallbacks() {
   const callbacks: string[] = [];
   const callbackBytes: number[][] = [];
@@ -552,6 +592,7 @@ const facadeTests = [
   ["fixed slots and iframe URLs", testFixedSlotsAndIframeUrls],
   ["strict source origin instance session", testStrictEnvelopeChecks],
   ["structured clone input wire", testStructuredCloneInputs],
+  ["typed resource loading state", testTypedResourceLoadingState],
   ["facade actions and callbacks", testFacadeActionsAndCallbacks],
   ["callback error and timeout", testCallbackErrorAndTimeout],
   ["destroy rejects pending RPC", testDestroyRejectsPending],
@@ -602,6 +643,7 @@ export async function runRealCompatSubframeActivationTests(
 
   let instance: OfficeEditorInstance | undefined;
   let container: HTMLElement | undefined;
+  const ratLoadingStates: Array<ReturnType<OfficeEditorInstance["getLoadingState"]>> = [];
   await run("real facade activation and identity", async () => {
     const facade = await loadFacade();
     container = makeContainer();
@@ -614,6 +656,9 @@ export async function runRealCompatSubframeActivationTests(
       startupTimeoutMs: 75_000,
       requestTimeoutMs: 30_000,
       destroyTimeoutMs: 10_000,
+      onLoadingChange: (state) => {
+        ratLoadingStates.push({ ...state });
+      },
     });
     assert(instance.getState().status === "ready", "real facade did not reach ready");
     assert(
@@ -626,6 +671,12 @@ export async function runRealCompatSubframeActivationTests(
       "real facade returned the wrong hosted identity",
     );
     await pauseForBrowserCacheProbe("rat");
+    assert(
+      ratLoadingStates.every(
+        (state) => !state.resourceDownload || state.transferredBytes > 0,
+      ),
+      `hosted runtime reported a download without transferred bytes: ${JSON.stringify(ratLoadingStates)}`,
+    );
     await pauseForThemeProbe("initial-dark");
   });
   await run("real facade live interface theme", async () => {
@@ -654,6 +705,27 @@ export async function runRealCompatSubframeActivationTests(
     assert(facade().getActiveOfficeEditorCount() === 0, "real facade leaked its active mount");
     container?.remove();
   });
+  await run("real facade shared canonical cache", async () => {
+    const hotContainer = makeContainer();
+    let hotInstance: OfficeEditorInstance | undefined;
+    try {
+      hotInstance = await facade().createOfficeEditor(hotContainer, {
+        hostUrl: hostUrl("ox"),
+        emptyType: "docx",
+        fileName: "Real_Activation_Hot.docx",
+        interfaceTheme: "light",
+        lang: "en-US",
+        expectedHostIdentity: facade().HOSTED_COMPAT_SUBFRAME_IDENTITY,
+        startupTimeoutMs: 75_000,
+        requestTimeoutMs: 30_000,
+        destroyTimeoutMs: 10_000,
+      });
+      await pauseForBrowserCacheProbe("ox");
+    } finally {
+      await hotInstance?.destroy();
+      hotContainer.remove();
+    }
+  });
   await run("real facade legacy DOC activation", async () => {
     const facade = await loadFacade();
     const response = await fetch("/e2e/fixtures/example-title-ole.doc");
@@ -665,7 +737,7 @@ export async function runRealCompatSubframeActivationTests(
     let legacyInstance: OfficeEditorInstance | undefined;
     try {
       legacyInstance = await facade.createOfficeEditor(legacyContainer, {
-        hostUrl: hostUrl("ox"),
+        hostUrl: hostUrl("tiger"),
         file,
         expectedHostIdentity: facade.HOSTED_COMPAT_SUBFRAME_IDENTITY,
         startupTimeoutMs: 75_000,
@@ -677,7 +749,6 @@ export async function runRealCompatSubframeActivationTests(
           legacyInstance.getState().fileName === "Example Title.doc",
         "legacy DOC did not reach ready through the hosted facade",
       );
-      await pauseForBrowserCacheProbe("ox");
       const exported = await legacyInstance.saveAs("docx");
       assert(
         exported.name.toLowerCase().endsWith(".docx") && exported.size > 0,

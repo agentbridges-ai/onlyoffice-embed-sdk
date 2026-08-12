@@ -2,6 +2,8 @@
   "use strict";
 
   var BRIDGE_SOURCE = "onlyoffice-bridge";
+  var RESOURCE_OBSERVER_PARENT_SOURCE =
+    "onlyoffice-resource-observer-parent";
   var BRIDGE_MESSAGE = {
     EDITOR_COMMAND: "editor:command",
     EDITOR_RESPONSE: "editor:response",
@@ -82,9 +84,7 @@
   if (!frameEditorId || !parentOrigin) {
     return;
   }
-  if (isSameOriginParent()) {
-    return;
-  }
+  var sameOriginParent = isSameOriginParent();
 
   function createBridgeInstanceId() {
     var randomPart = "";
@@ -117,6 +117,124 @@
   var handshakeReady = false;
   var queuedSocketEmits = [];
   var queuedSocketEvents = [];
+
+  var resourceLoadingState = {
+    loading: true,
+    resourceStatus: "checking",
+    resourceDownload: false,
+    transferredBytes: 0,
+    resourceCount: 0,
+  };
+  var resourceLoadingFinalTimer = 0;
+  var observedResourceNames = Object.create(null);
+  var cachedResourceCount = 0;
+  var downloadedResourceCount = 0;
+
+  function postResourceLoadingState() {
+    if (!window.parent || window.parent === window) return;
+    window.parent.postMessage({
+      source: "onlyoffice-resource-observer",
+      type: BRIDGE_MESSAGE.EDITOR_EVENT,
+      frameEditorId: frameEditorId,
+      state: Object.assign({}, resourceLoadingState),
+    }, parentOrigin);
+  }
+
+  function handleResourceLoadingStateRequest(event) {
+    var message = event.data;
+    if (
+      event.source !== window.parent ||
+      event.origin !== parentOrigin ||
+      !message ||
+      message.source !== RESOURCE_OBSERVER_PARENT_SOURCE ||
+      message.type !== "get-state" ||
+      message.frameEditorId !== frameEditorId
+    ) {
+      return;
+    }
+    postResourceLoadingState();
+  }
+
+  window.addEventListener("message", handleResourceLoadingStateRequest);
+
+  function isHostedStaticResource(entry) {
+    try {
+      var url = new URL(entry.name, document.baseURI);
+      var base = new URL(document.baseURI);
+      return (
+        url.pathname.indexOf("/onlyoffice/runtime/") !== -1 ||
+        (url.origin === base.origin && url.origin !== window.location.origin)
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function finishResourceLoadingAfterQuietPeriod() {
+    if (resourceLoadingFinalTimer) {
+      window.clearTimeout(resourceLoadingFinalTimer);
+    }
+    resourceLoadingFinalTimer = window.setTimeout(function () {
+      resourceLoadingFinalTimer = 0;
+      resourceLoadingState.loading = false;
+      resourceLoadingState.resourceDownload = false;
+      resourceLoadingState.resourceStatus = downloadedResourceCount
+        ? "downloaded"
+        : cachedResourceCount
+          ? "cache-hit"
+          : "not-observed";
+      postResourceLoadingState();
+    }, 300);
+  }
+
+  function observeStaticResource(entry) {
+    if (!isHostedStaticResource(entry) || observedResourceNames[entry.name]) {
+      return;
+    }
+    observedResourceNames[entry.name] = true;
+    var deliveryType = typeof entry.deliveryType === "string" ? entry.deliveryType : "";
+    var encodedBodySize = Number(entry.encodedBodySize) || 0;
+    var transferSize = Number(entry.transferSize) || 0;
+    var isCacheHit =
+      deliveryType === "cache" ||
+      ((transferSize === 0 || encodedBodySize === 0) &&
+        Number(entry.decodedBodySize) > 0);
+    var downloaded = !isCacheHit && encodedBodySize > 0 && transferSize > 0;
+    if (downloaded) {
+      var wasDownloading = resourceLoadingState.resourceDownload;
+      downloadedResourceCount += 1;
+      resourceLoadingState.transferredBytes += encodedBodySize;
+      resourceLoadingState.resourceCount =
+        downloadedResourceCount + cachedResourceCount;
+      resourceLoadingState.loading = true;
+      resourceLoadingState.resourceStatus = "downloading";
+      resourceLoadingState.resourceDownload = true;
+      if (!wasDownloading) postResourceLoadingState();
+    } else if (isCacheHit) {
+      cachedResourceCount += 1;
+      resourceLoadingState.resourceCount =
+        downloadedResourceCount + cachedResourceCount;
+    }
+    finishResourceLoadingAfterQuietPeriod();
+  }
+
+  try {
+    performance.getEntriesByType("resource").forEach(observeStaticResource);
+    new PerformanceObserver(function (list) {
+      list.getEntries().forEach(observeStaticResource);
+    }).observe({ type: "resource", buffered: true });
+    window.addEventListener("load", finishResourceLoadingAfterQuietPeriod, {
+      once: true,
+    });
+  } catch (error) {
+    resourceLoadingState.loading = false;
+    resourceLoadingState.resourceStatus = "not-observed";
+    finishResourceLoadingAfterQuietPeriod();
+  }
+
+  if (sameOriginParent) {
+    return;
+  }
 
   function flushSocketEmits() {
     if (!handshakeReady) {

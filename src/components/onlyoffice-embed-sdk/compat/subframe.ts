@@ -7,6 +7,7 @@ import type {
   OfficeHostIdentity,
   OfficeHostUrlContext,
   OfficeInterfaceTheme,
+  OfficeLoadingState,
   OfficeSaveToNewFormatConfirmationOptions,
 } from "./editor";
 import {
@@ -65,6 +66,9 @@ export type {
   OfficeHostUrlContext,
   OfficeHostUrlResolver,
   OfficeInterfaceTheme,
+  OfficeLoadingPhase,
+  OfficeLoadingState,
+  OfficeResourceLoadStatus,
   OfficePluginOptions,
   OfficeDownloadCallbackResult,
   OfficeSaveBehavior,
@@ -626,6 +630,10 @@ class CompatSubframeInstance implements OfficeEditorInstance {
     return { ...this.state };
   }
 
+  getLoadingState(): OfficeLoadingState {
+    return this.mount.getLoadingState();
+  }
+
   getHostIdentity(): OfficeHostIdentity {
     if (!this.hostIdentity) {
       throw new Error("Office host identity is unavailable before activation");
@@ -646,6 +654,14 @@ class CompatSubframeMount implements OfficeEditorMount {
   private readonly startupTimeoutMs: number;
   private readonly callbackTimeoutMs: number;
   private phase: OfficeEditorMountState["phase"] = "host-loading";
+  private loadingState: OfficeLoadingState = {
+    loading: true,
+    phase: "host-loading",
+    resourceStatus: "checking",
+    resourceDownload: false,
+    transferredBytes: 0,
+    resourceCount: 0,
+  };
   private mountError?: Error;
   private childReady = false;
   private destroying = false;
@@ -773,6 +789,9 @@ class CompatSubframeMount implements OfficeEditorMount {
     this.frame.addEventListener("error", this.onFrameError, { once: true });
     container.replaceChildren(this.frame);
     activeOrigins.set(this.targetOrigin, this);
+    this.ownerWindow.queueMicrotask(() => {
+      if (!this.destroyed) this.notifyLoadingChange(this.loadingState);
+    });
   }
 
   get canReturnToPreview() {
@@ -803,6 +822,7 @@ class CompatSubframeMount implements OfficeEditorMount {
       return Promise.reject(new DOMException("Editor was destroyed", "AbortError"));
     }
     this.phase = "waiting-for-activation";
+    this.updateLoadingState({ loading: true, phase: "runtime-loading" });
     this.activatePromise = this.prepareOpenPayload()
       .then((payload) => this.request("open", payload, this.startupTimeoutMs))
       .then((value) => {
@@ -813,6 +833,11 @@ class CompatSubframeMount implements OfficeEditorMount {
         this.instance.updateState(result.state);
         this.instance.setHostIdentity(result.hostIdentity);
         this.phase = "ready";
+        this.updateLoadingState({
+          loading: false,
+          phase: "ready",
+          resourceDownload: false,
+        });
         this.notifyObserver(() => this.options.onReady?.(this.instance));
         return this.instance;
       })
@@ -906,6 +931,11 @@ class CompatSubframeMount implements OfficeEditorMount {
     this.destroyed = true;
     this.destroying = true;
     this.phase = "destroyed";
+    this.updateLoadingState({
+      loading: false,
+      phase: "destroyed",
+      resourceDownload: false,
+    });
     this.instance.updateState({
       ...this.instance.getState(),
       dirty: false,
@@ -963,6 +993,10 @@ class CompatSubframeMount implements OfficeEditorMount {
     };
   }
 
+  getLoadingState(): OfficeLoadingState {
+    return { ...this.loadingState };
+  }
+
   reportError(error: Error, instance: OfficeEditorInstance = this.instance) {
     const now = Date.now();
     const key = `${error.name}:${error.message}`;
@@ -1010,6 +1044,7 @@ class CompatSubframeMount implements OfficeEditorMount {
       if (this.childReady) return;
       this.childReady = true;
       this.phase = "runtime-loading";
+      this.updateLoadingState({ loading: true, phase: "runtime-loading" });
       for (const requestId of this.pending.keys()) this.sendPending(requestId);
       return;
     }
@@ -1123,6 +1158,10 @@ class CompatSubframeMount implements OfficeEditorMount {
   }
 
   private handleEvent(message: CompatSubframeEventMessage) {
+    if (message.event === "loading-change") {
+      this.updateLoadingState(message.payload as OfficeLoadingState);
+      return;
+    }
     if (message.event === "plugin-ready") {
       const payload = message.payload as { pluginGuid?: unknown; editorType?: unknown };
       if (typeof payload?.pluginGuid === "string" && typeof payload.editorType === "string") {
@@ -1167,6 +1206,23 @@ class CompatSubframeMount implements OfficeEditorMount {
         this.reportError(remoteError(message.payload));
       }
     }
+  }
+
+  private updateLoadingState(patch: Partial<OfficeLoadingState>) {
+    const next = { ...this.loadingState, ...patch };
+    const changed = Object.keys(patch).some(
+      (key) =>
+        next[key as keyof OfficeLoadingState] !==
+        this.loadingState[key as keyof OfficeLoadingState],
+    );
+    this.loadingState = next;
+    if (changed) this.notifyLoadingChange(next);
+  }
+
+  private notifyLoadingChange(state: OfficeLoadingState) {
+    this.notifyObserver(() =>
+      this.options.onLoadingChange?.({ ...state }, this.instance),
+    );
   }
 
   private envelope() {
