@@ -6,6 +6,7 @@ import {
 } from "../const";
 import {
   editorManagerFactory,
+  type EditorDocumentExport,
   type EditorManager,
 } from "../core/editor-manager";
 import { onlyofficeEventbus } from "../core/eventbus";
@@ -780,6 +781,7 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
           lang: this.options.lang,
           theme: interfaceThemeToOfficeTheme(this.options.interfaceTheme),
           plugins: this.options.plugins,
+          onUserSave: (output) => this.persistNativeSavedFile(output),
           onDownloadOutput: (output) =>
             this.handleNativeDownloadOutput(output),
         }),
@@ -1033,6 +1035,55 @@ class DirectEmbedOfficeEditor implements OfficeEditorInstance {
       notifyOfficeEditorError(this.options.onError, normalized, this);
       throw normalized;
     }
+  }
+
+  private persistNativeSavedFile(output: EditorDocumentExport) {
+    if (this.destroyed || !this.manager || this.state.status !== "ready") {
+      return Promise.reject(new Error("Editor is not open"));
+    }
+    if (this.savePromise) {
+      return Promise.reject(
+        new Error("A save request is already in progress for this editor"),
+      );
+    }
+
+    const manager = this.manager;
+    let operation: Promise<File>;
+    operation = (async () => {
+      if (this.persistenceDirty || this.state.dirty || manager.isDirty()) {
+        this.persistenceDirty = true;
+      }
+      const extension = normalizeExtension(undefined, this.state.fileType);
+      const converted = await convertBinToDocument(
+        output.binData,
+        output.fileName || this.state.fileName,
+        extension,
+        output.media,
+        output.themes,
+        manager.getLogger(),
+      );
+      const file = makeFile(
+        this.ownerWindow,
+        [converted.data as BlobPart],
+        converted.fileName,
+        getOnlyOfficeMimeType(extension),
+      );
+      await this.persistSavedFile(file);
+      this.persistenceDirty = false;
+      return file;
+    })()
+      .catch((error) => {
+        const normalized = toError(error);
+        this.persistenceDirty = true;
+        if (!this.destroyed) this.updateState({ dirty: true });
+        notifyOfficeEditorError(this.options.onError, normalized, this);
+        throw normalized;
+      })
+      .finally(() => {
+        if (this.savePromise === operation) this.savePromise = null;
+      });
+    this.savePromise = operation;
+    return operation.then(() => undefined);
   }
 
   private async persistSavedFile(file: File) {

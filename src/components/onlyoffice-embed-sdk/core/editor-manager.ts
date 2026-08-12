@@ -101,11 +101,21 @@ export type CreateEditorViewOptions = {
   onDownloadOutput?: (
     output: EditorDownloadOutput,
   ) => boolean | Promise<boolean>;
+  /** Native toolbar Save persistence handler. It must settle only after storage commits. */
+  onUserSave?: (output: EditorDocumentExport) => void | Promise<void>;
   /** 由 EditorManagerFactory.beginLoadSession 生成，用于丢弃过期的异步初始化 */
   loadSession?: number;
   /** 修订审阅页：开启 markup 显示与页边修订气泡 */
   revisionReview?: boolean;
   officeXmlEvent?: OfficeXmlEventConfig;
+};
+
+export type EditorDocumentExport = Omit<
+  EditorCapturedDocumentSnapshot,
+  "capturedDirtyRevision"
+> & {
+  binData: Uint8Array;
+  instanceId: string;
 };
 
 type OnlyOfficeNativeThemeWindow = Window & {
@@ -211,6 +221,8 @@ export class EditorManager {
   private plugins?: OnlyOfficePluginOptions;
   private pluginConfigUrls: string[] = [];
   private downloadOutputHandler?: CreateEditorViewOptions["onDownloadOutput"];
+  private userSaveHandler?: CreateEditorViewOptions["onUserSave"];
+  private userSaveQueue: Promise<void> = Promise.resolve();
   /** 与容器一一对应，供事件与 Connector 使用同一稳定路由键。 */
   private instanceId: string;
   private containerId: string;
@@ -274,9 +286,7 @@ export class EditorManager {
         dirtyRevision: this.dirtyRevision,
       }),
       logger: this.logger,
-      onUserSave: (snapshot) => {
-        this.notifyUserSave(snapshot);
-      },
+      onUserSave: (snapshot) => this.handleUserSave(snapshot),
       onDownloadOutput: (output) =>
         this.downloadOutputHandler?.(output) ?? false,
       onLoadError: (error) => {
@@ -1865,43 +1875,27 @@ export class EditorManager {
     };
   }
 
-  private userSaveTimer: number | null = null;
-  private pendingUserSaveSnapshot: ReturnType<
-    EditorServer["getDocumentSnapshot"]
-  > | null = null;
-
   /**
-   * 用户保存：更新快照并广播 SAVE_DOCUMENT + ONSAVE（同 tick 内合并重复回调）。
-   *
-   * This callback arrives after the editor has already produced its bytes, so
-   * it cannot prove that a newer dirty revision is part of that snapshot. Keep
-   * dirty latched; only a revision-bound capture may clear it safely.
+   * Native toolbar Save is a persistence transaction, not an in-memory ACK.
+   * Serialize saves, wait for the consumer storage callback, then clear only
+   * the dirty revision represented by the accepted Editor.bin snapshot.
    */
-  private notifyUserSave(
-    snapshot?: ReturnType<EditorServer["getDocumentSnapshot"]>,
-  ) {
-    if (snapshot) {
-      this.pendingUserSaveSnapshot = snapshot;
-    }
-
-    if (this.userSaveTimer !== null) {
-      this.getOwnerWindow().clearTimeout(this.userSaveTimer);
-    }
-
-    this.userSaveTimer = this.getOwnerWindow().setTimeout(() => {
-      this.userSaveTimer = null;
-
-      const snap =
-        this.pendingUserSaveSnapshot ?? this.server.getDocumentSnapshot();
-      this.pendingUserSaveSnapshot = null;
-
-      const data = this.createExportData(snap);
+  private handleUserSave(snapshot: EditorCapturedDocumentSnapshot) {
+    const handler = this.userSaveHandler;
+    const operation = this.userSaveQueue.then(async () => {
+      const data = this.createExportData(snapshot);
+      await handler?.(data);
+      if (snapshot.capturedDirtyRevision !== undefined) {
+        this.clearDirtyAtRevision(snapshot.capturedDirtyRevision);
+      }
       onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.SAVE_DOCUMENT, data);
       onlyofficeEventbus.emit(ONLYOFFICE_EVENT_KEYS.ONSAVE, {
         fileName: data.fileName,
         instanceId: this.instanceId,
       });
-    }, 0);
+    });
+    this.userSaveQueue = operation.catch(() => undefined);
+    return operation;
   }
 
   private isLoadSessionActive(containerId: string, loadSession?: number) {
@@ -1968,6 +1962,7 @@ export class EditorManager {
     this.spellcheck = options.spellcheck ?? false;
     this.revisionReviewMode = !!options.revisionReview;
     this.downloadOutputHandler = options.onDownloadOutput;
+    this.userSaveHandler = options.onUserSave;
     this.server.setOfficeXmlEventConfig(options.officeXmlEvent);
     if (options.user) {
       this.server.setUser(options.user);
@@ -3097,11 +3092,6 @@ export class EditorManager {
   private teardown() {
     this.crossOriginReadOnlySyncGeneration += 1;
     this.rejectPendingRename(new Error("OnlyOffice editor was destroyed"));
-    if (this.userSaveTimer !== null) {
-      this.getOwnerWindow().clearTimeout(this.userSaveTimer);
-      this.userSaveTimer = null;
-    }
-    this.pendingUserSaveSnapshot = null;
     this.teardownWordContentSync();
     this.crossOriginBridgeTeardown?.();
     this.crossOriginBridgeTeardown = null;
@@ -3112,6 +3102,7 @@ export class EditorManager {
     this.editor?.destroyEditor?.();
     this.editor = null;
     this.downloadOutputHandler = undefined;
+    this.userSaveHandler = undefined;
     this.resetDirtyState();
     this.comments.clear();
     this.revisions = [];

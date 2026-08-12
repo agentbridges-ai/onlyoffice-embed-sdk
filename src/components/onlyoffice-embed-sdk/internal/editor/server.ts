@@ -1306,19 +1306,20 @@ export class EditorServer {
   /**
    * @description 用户保存：更新 Editor.bin 并通知接入层，不触发浏览器下载。
    */
-  commitUserSave(data: Uint8Array) {
+  async commitUserSave(data: Uint8Array) {
     if (!isValidEditorBin(data)) {
-      console.warn(
-        "[EditorServer] Ignoring invalid Editor.bin from save, length:",
-        data.length,
+      throw new Error(
+        `OnlyOffice returned an invalid Editor.bin while saving (${data.length} bytes)`,
       );
-      return;
     }
 
     this.downloadParts = [];
     this.downloadId = "";
     this.updateEditorBin(data);
-    this.options.onUserSave?.(this.getDocumentSnapshot());
+    await this.options.onUserSave?.({
+      ...this.getDocumentSnapshot(),
+      capturedDirtyRevision: this.options.getState?.().dirtyRevision,
+    });
   }
 
   private beginSaving() {
@@ -2390,7 +2391,7 @@ export class EditorServer {
         /**
          * @description 用户保存时保留 Editor.bin 并走 EventBus，不触发浏览器下载。
          */
-        this.commitUserSave(input);
+        await this.commitUserSave(input);
         this.endSaving();
         return {
           status: "ok",
