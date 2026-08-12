@@ -1,9 +1,9 @@
 /** Version of the independently published compatibility package. */
-export const ONLYOFFICE_EMBED_SDK_VERSION = "0.3.1";
+export const ONLYOFFICE_EMBED_SDK_VERSION = "0.3.2";
 
 /** Identifies the direct-embed host model used by the compatibility facade. */
 export const ONLYOFFICE_EMBED_HOST_BUILD_ID =
-  "onlyoffice-embed-sdk-hosted-v3";
+  "onlyoffice-embed-sdk-hosted-v4";
 
 /** Immutable, independently attested converter used by the hosted runtime. */
 export const ONLYOFFICE_X2T_RELEASE = Object.freeze({
@@ -59,11 +59,11 @@ export const ONLYOFFICE_EMBED_HOST_MANIFEST = Object.freeze({
   compatSubframePath: "/subframe?runtime=compat",
   canonicalResourceOrigin: "https://onlyoffice.agent-bridges.com",
   onlyofficeResourcePath:
-    "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v3",
+    "/onlyoffice/runtime/onlyoffice-embed-sdk-hosted-v4",
   onlyofficeVersion: "9.4.0-develop",
   x2t: ONLYOFFICE_X2T_RELEASE,
 });
 
 /** SHA-256 of JSON.stringify(ONLYOFFICE_EMBED_HOST_MANIFEST). */
 export const ONLYOFFICE_EMBED_HOST_ASSET_DIGEST =
-  "1ba560ce80aa78dbb6a9b55a7fec42b98dc8a6cdcf18f43c44d5a8d57aa2a096";
+  "075111692b617815b393d3f7a9bfd5e41c574f75bc7ebdf1fb9f493fad38ea5b";
