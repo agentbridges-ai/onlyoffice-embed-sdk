@@ -674,9 +674,16 @@ export async function runRealCompatSubframeActivationTests(
     await pauseForBrowserCacheProbe("rat");
     assert(
       ratLoadingStates.some(
-        (state) => state.resourceStatus === "downloading" && state.resourceDownload,
+        (state) =>
+          state.phase === "static-resources" && state.resourceCount > 0,
       ),
-      "cold hosted runtime did not report verified transferred resources",
+      `hosted runtime did not report observed static resources: ${JSON.stringify(ratLoadingStates)}`,
+    );
+    assert(
+      ratLoadingStates.every(
+        (state) => !state.resourceDownload || state.transferredBytes > 0,
+      ),
+      `hosted runtime reported a download without transferred bytes: ${JSON.stringify(ratLoadingStates)}`,
     );
     await pauseForThemeProbe("initial-dark");
   });

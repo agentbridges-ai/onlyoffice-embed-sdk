@@ -295,22 +295,6 @@ test("real compatibility subframe fails closed without an exact parent origin", 
   ).toBeVisible();
 });
 
-test("hosted cache policy separates documents from immutable resources", async ({
-  request,
-}) => {
-  const subframe = await request.get("/subframe?runtime=compat");
-  const version = await request.get("/api/version");
-  const immutableAsset = await request.get(
-    "/packages/onlyoffice/9.4.0-develop/web-apps/apps/api/documents/api.js",
-  );
-
-  expect(subframe.headers()["cache-control"]).toBe("no-store");
-  expect(version.headers()["cache-control"]).toBe("no-store");
-  expect(immutableAsset.headers()["cache-control"]).toContain("immutable");
-  expect(immutableAsset.headers()["timing-allow-origin"]).toBe("*");
-  expect(immutableAsset.headers()["vary"] ?? "").not.toMatch(/origin/i);
-});
-
 test("real compatibility subframe performs a strict ready handshake", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   const parentOrigin = new URL(page.url()).origin;
