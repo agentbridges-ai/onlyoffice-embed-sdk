@@ -362,6 +362,11 @@ export type EditorDownloadOutput = {
 export interface ServerOptions {
   getState?: () => { readOnly?: boolean; dirtyRevision?: number };
   logger?: EditorLogger;
+  /**
+   * Persist the live editor snapshot before acknowledging co-authoring Save.
+   * The promise must settle only after the host storage callback commits.
+   */
+  onSaveRequest?: () => void | Promise<void>;
   /** WOPI 重命名 RPC 成功后的回调，携带 SDK 最终采用的完整文件名。 */
   onDocumentRename?: (fileName: string) => void;
   /**

@@ -1570,6 +1570,7 @@ async function testCompatibilityNativeOutputCallbacks() {
       serverMessages.push(message);
     });
     server.registerSocketTransport(socket);
+    socket.connect();
 
     const postDownloadAs = (
       cmd: Record<string, unknown>,
@@ -1620,56 +1621,73 @@ async function testCompatibilityNativeOutputCallbacks() {
       "programmatic save persistence escaped the onSave channel",
     );
 
-    const privateInstance = instance as unknown as {
-      persistSavedFile(file: File): Promise<void>;
-      persistNativeSavedFile(output: { binData: Uint8Array }): Promise<void>;
-    };
-    privateInstance.persistNativeSavedFile = async (output) => {
-      await privateInstance.persistSavedFile(
-        new PopupFile([output.binData.slice()], "New_Document.docx"),
-      );
-    };
+    converter.convert = async (params) => ({
+      output: new Uint8Array(params.data.slice(0)),
+      media: {},
+    });
+    converterPatched = true;
 
     dispatchDocumentStateChange({ data: true });
     await waitFor(() => instance?.getState().dirty === true);
     blockProgrammaticSave = true;
     const beforeNativeSave = serverMessages.length;
-    let nativeSaveSettled = false;
-    const nativeSaveRequest = postDownloadAs(
-      {
-        c: "save",
-        savetype: AscSaveTypes.CompleteAll,
-        outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
-        title: "New_Document.docx",
-      },
-      new TextEncoder().encode("DOCY;v5;native-toolbar-save"),
-    ).then((response) => {
-      nativeSaveSettled = true;
-      return response;
+    const nativeSaveBytes = new TextEncoder().encode(
+      "DOCY;v5;native-toolbar-save-latest-ZZSAVETEST",
+    );
+    let nativeCaptureRequest: Promise<Response> | undefined;
+    handleDownloadAs = (format) => {
+      assert(format === "bin", "native toolbar Save did not request Editor.bin");
+      nativeCaptureRequest = postDownloadAs(
+        {
+          c: "save",
+          savetype: AscSaveTypes.CompleteAll,
+          outputformat: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+          title: "New_Document.docx",
+          nobase64: true,
+          isSaveAs: true,
+          saveAsPath: null,
+        },
+        nativeSaveBytes,
+      );
+    };
+    socket.emit("message", {
+      type: "saveChanges",
+      changes: [JSON.stringify({ marker: "ZZSAVETEST" })],
+      startSaveChanges: true,
+      endSaveChanges: true,
     });
     await waitFor(() => resolveBlockedSave);
     assert(
-      !nativeSaveSettled,
-      "native toolbar Save acknowledged before external persistence settled",
+      !serverMessages.slice(beforeNativeSave).some(
+        (message) => message.type === "unSaveLock",
+      ),
+      "saveChanges was acknowledged before external persistence settled",
     );
     blockProgrammaticSave = false;
     resolveBlockedSave?.();
     resolveBlockedSave = undefined;
-    const nativeSaveResponse = await nativeSaveRequest;
-    const nativeSaveResult = (await nativeSaveResponse.json()) as {
-      status?: unknown;
-    };
-    const nativeSaveMessage = await waitForSaveMessage(beforeNativeSave);
-    const nativeSaveMessageData = nativeSaveMessage.data as Record<string, unknown>;
+    await waitFor(() => nativeCaptureRequest);
+    const nativeSaveResponse = await nativeCaptureRequest!;
+    const nativeSaveResult = (await nativeSaveResponse.json()) as { status?: unknown };
+    const nativeSaveAck = await waitFor(() =>
+      serverMessages
+        .slice(beforeNativeSave)
+        .find((message) => message.type === "unSaveLock"),
+    );
     await waitFor(() => instance?.getState().dirty === false);
+    const persistedNativeBytes = new Uint8Array(
+      await savedFiles[1]!.arrayBuffer(),
+    );
     assert(
       nativeSaveResult.status === "ok" &&
-        nativeSaveMessageData.status === "ok" &&
+        nativeSaveAck.type === "unSaveLock" &&
         Number(savedFiles.length) === 2 &&
         savedFiles[1]!.name.toLowerCase().endsWith(".docx") &&
+        new TextDecoder().decode(persistedNativeBytes).includes("ZZSAVETEST") &&
         callbackInstance === instance,
-      "native toolbar Save did not persist through the compatibility onSave callback",
+      "saveChanges did not persist the latest Editor.bin through onSave before ACK",
     );
+    handleDownloadAs = undefined;
     savedFiles.pop();
 
     const saveAsBytes = Uint8Array.from([11, 12, 13]);
@@ -2072,34 +2090,58 @@ async function testCompatibilityNativeOutputCallbacks() {
     await waitFor(() => instance?.getState().dirty === true);
     rejectProgrammaticSave = true;
     const beforeRejectedNativeSave = serverMessages.length;
-    const rejectedNativeResponse = await postDownloadAs(
-      {
-        c: "save",
-        savetype: AscSaveTypes.CompleteAll,
-        outputformat: AvsFileType.AVS_FILE_CANVAS_WORD,
-        title: "New_Document.docx",
-      },
-      new TextEncoder().encode("DOCY;v5;native-toolbar-save-rejected"),
-    );
-    const rejectedNativeResult = (await rejectedNativeResponse.json()) as {
-      status?: unknown;
+    const failedCaptureRequests: Promise<Response>[] = [];
+    handleDownloadAs = (format) => {
+      assert(format === "bin", "failed native Save did not request Editor.bin");
+      failedCaptureRequests.push(
+        postDownloadAs(
+          {
+            c: "save",
+            savetype: AscSaveTypes.CompleteAll,
+            outputformat: AvsFileType.AVS_FILE_DOCUMENT_DOCX,
+            title: "New_Document.docx",
+            nobase64: true,
+            isSaveAs: true,
+            saveAsPath: null,
+          },
+          new TextEncoder().encode("DOCY;v5;native-toolbar-save-rejected"),
+        ),
+      );
     };
-    const rejectedNativeMessage = await waitForSaveMessage(
-      beforeRejectedNativeSave,
+    socket.emit("message", {
+      type: "saveChanges",
+      changes: [JSON.stringify({ marker: "rejected-save" })],
+      startSaveChanges: true,
+      endSaveChanges: true,
+    });
+    await waitFor(() =>
+      callbackErrors.at(-1)?.message === "programmatic persistence failed"
+        ? true
+        : undefined,
     );
-    const rejectedNativeMessageData = rejectedNativeMessage.data as Record<
-      string,
-      unknown
-    >;
-    rejectProgrammaticSave = false;
     await delay(150);
     assert(
-      rejectedNativeResult.status === "err" &&
-        rejectedNativeMessageData.status === "err" &&
+      failedCaptureRequests.length === 1 &&
         instance.getState().dirty &&
+        !serverMessages.slice(beforeRejectedNativeSave).some(
+          (message) => message.type === "unSaveLock",
+        ) &&
         callbackErrors.at(-1)?.message === "programmatic persistence failed",
-      "native toolbar Save failure was acknowledged or cleared dirty state",
+      "failed saveChanges persistence was acknowledged or cleared dirty state",
     );
+
+    rejectProgrammaticSave = false;
+    const beforeNativeRetry = serverMessages.length;
+    socket.emit("message", { type: "unSaveLock" });
+    await waitFor(() => failedCaptureRequests.length === 2 ? true : undefined);
+    await Promise.all(failedCaptureRequests);
+    await waitFor(() =>
+      serverMessages
+        .slice(beforeNativeRetry)
+        .find((message) => message.type === "unSaveLock"),
+    );
+    await waitFor(() => instance?.getState().dirty === false);
+    handleDownloadAs = undefined;
   } finally {
     if (converterPatched) converter.convert = originalConverterConvert;
     await mount.destroy();

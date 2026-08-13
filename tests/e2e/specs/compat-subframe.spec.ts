@@ -627,6 +627,48 @@ test("real package facade activates and controls the hosted child", async ({ pag
   await page.evaluate(() => {
     document.documentElement.dataset.onlyofficeThemeProbeResume = "switched-light";
   });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => document.documentElement.dataset.onlyofficeNativeSaveProbe ?? "",
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe("ready");
+  const nativeSaveFrame = page.frames().find((frame) => {
+    const url = new URL(frame.url());
+    return (
+      url.hostname === "rat.onlyoffice.localhost" &&
+      url.pathname.endsWith("/web-apps/apps/documenteditor/main/index.html")
+    );
+  });
+  expect(nativeSaveFrame, "rat editor frame is missing during native Save").toBeTruthy();
+  const editorOverlay = nativeSaveFrame!.locator("#id_viewer_overlay");
+  await expect(editorOverlay).toBeVisible();
+  await editorOverlay.click({ position: { x: 120, y: 100 } });
+  await page.keyboard.type("ZZREALNATIVESAVE");
+  const nativeSaveButton = nativeSaveFrame!
+    .locator('button[aria-label^="Save"]:visible')
+    .first();
+  await expect(nativeSaveButton).not.toHaveClass(/disabled/, { timeout: 10_000 });
+  await nativeSaveButton.click();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => document.documentElement.dataset.onlyofficeNativeSaveFile ?? "",
+        ),
+      { timeout: 30_000 },
+    )
+    .not.toBe("");
+  await page.evaluate(() => {
+    document.documentElement.dataset.onlyofficeNativeSaveCommit = "ready";
+  });
+  await expect(nativeSaveButton).toHaveClass(/disabled/, { timeout: 30_000 });
+  await page.evaluate(() => {
+    document.documentElement.dataset.onlyofficeNativeSaveProbeResume = "ready";
+  });
   const oxTimings = await readCanonicalResourceTimings("ox");
   expect(
     oxTimings.length > 0,
@@ -659,6 +701,7 @@ test("real package facade activates and controls the hosted child", async ({ pag
   expect(steps, JSON.stringify(steps, null, 2)).toEqual([
     { name: "real facade activation and identity", status: "passed" },
     { name: "real facade live interface theme", status: "passed" },
+    { name: "real facade native toolbar Save", status: "passed" },
     { name: "real facade PDF print", status: "passed" },
     { name: "real facade readonly language destroy", status: "passed" },
     { name: "real facade shared canonical cache", status: "passed" },

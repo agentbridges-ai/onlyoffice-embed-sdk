@@ -329,6 +329,7 @@ export class EditorManager {
         dirtyRevision: this.dirtyRevision,
       }),
       logger: this.logger,
+      onSaveRequest: () => this.persistNativeToolbarSave(),
       onUserSave: (snapshot) => this.handleUserSave(snapshot),
       onDownloadOutput: (output) =>
         this.downloadOutputHandler?.(output) ?? false,
@@ -2022,6 +2023,11 @@ export class EditorManager {
     });
     this.userSaveQueue = operation.catch(() => undefined);
     return operation;
+  }
+
+  private async persistNativeToolbarSave() {
+    const snapshot = await this.captureDocumentSnapshotAllowingReadOnly();
+    await this.handleUserSave(snapshot);
   }
 
   private isLoadSessionActive(containerId: string, loadSession?: number) {
