@@ -86,6 +86,19 @@ async function pauseForThemeProbe(stage: "initial-dark" | "switched-light") {
   delete document.documentElement.dataset.onlyofficeThemeProbe;
 }
 
+async function pauseForNativeSaveProbe() {
+  if (new URLSearchParams(window.location.search).get("cacheProbe") !== "1") {
+    return false;
+  }
+  document.documentElement.dataset.onlyofficeNativeSaveProbe = "ready";
+  await waitFor(
+    () => document.documentElement.dataset.onlyofficeNativeSaveProbeResume === "ready",
+    30_000,
+  );
+  delete document.documentElement.dataset.onlyofficeNativeSaveProbe;
+  return true;
+}
+
 function localBase() {
   return `${window.location.protocol}//onlyoffice.localhost:${window.location.port}`;
 }
@@ -659,6 +672,17 @@ export async function runRealCompatSubframeActivationTests(
       onLoadingChange: (state) => {
         ratLoadingStates.push({ ...state });
       },
+      onSave: async (file) => {
+        document.documentElement.dataset.onlyofficeNativeSaveFile = JSON.stringify({
+          name: file.name,
+          size: file.size,
+        });
+        await waitFor(
+          () => document.documentElement.dataset.onlyofficeNativeSaveCommit === "ready",
+          30_000,
+        );
+        return true;
+      },
     });
     assert(instance.getState().status === "ready", "real facade did not reach ready");
     assert(
@@ -683,6 +707,21 @@ export async function runRealCompatSubframeActivationTests(
     assert(instance, "real facade instance is missing");
     await instance.setInterfaceTheme("light");
     await pauseForThemeProbe("switched-light");
+  });
+  await run("real facade native toolbar Save", async () => {
+    assert(instance, "real facade instance is missing");
+    if (!(await pauseForNativeSaveProbe())) return;
+    const saved = JSON.parse(
+      document.documentElement.dataset.onlyofficeNativeSaveFile ?? "null",
+    ) as { name?: unknown; size?: unknown } | null;
+    assert(
+      saved?.name === "Real_Activation.docx" &&
+        typeof saved.size === "number" &&
+        saved.size > 0,
+      "native toolbar Save did not persist a non-empty DOCX through onSave",
+    );
+    delete document.documentElement.dataset.onlyofficeNativeSaveFile;
+    delete document.documentElement.dataset.onlyofficeNativeSaveCommit;
   });
   await run("real facade PDF print", async () => {
     assert(instance, "real facade instance is missing");

@@ -782,6 +782,13 @@ function summarizeSaveChanges(record: Record<string, unknown>) {
   };
 }
 
+function countSavedChanges(changes: unknown) {
+  if (Array.isArray(changes)) return changes.length;
+  if (typeof changes !== "string") return 0;
+  const parsed = tryParseJson(changes);
+  return Array.isArray(parsed) ? parsed.length : 0;
+}
+
 function getSaveTypeLabel(value: unknown) {
   switch (value) {
     case AscSaveTypes.PartStart:
@@ -922,7 +929,12 @@ export class EditorServer {
     buildNumber: 129,
   };
   private participants: Participant[] = [];
+  private changesIndex = 0;
   private syncChangesIndex = 0;
+  private localChangesRevision = 0;
+  private persistedLocalChangesRevision = 0;
+  private localSaveGeneration = 0;
+  private localSaveQueue: Promise<void> = Promise.resolve();
   private loadPromise: Promise<void> | null = null;
   private loadGeneration = 0;
   private loadBlocked = false;
@@ -1041,6 +1053,7 @@ export class EditorServer {
 
   reset() {
     this.loadGeneration += 1;
+    this.localSaveGeneration += 1;
     if (this.pendingExport) {
       window.clearTimeout(this.pendingExport.timer);
       this.pendingExport.reject(new Error("Editor server reset"));
@@ -1073,6 +1086,10 @@ export class EditorServer {
     this.downloadFileNames.clear();
     this.endSaving();
     this.syncChangesIndex = 0;
+    this.changesIndex = 0;
+    this.localChangesRevision = 0;
+    this.persistedLocalChangesRevision = 0;
+    this.localSaveQueue = Promise.resolve();
     this.participants = [];
   }
 
@@ -2073,6 +2090,23 @@ export class EditorServer {
     socket.server.emit("message", ...msg);
   }
 
+  private persistLocalChanges(targetRevision: number) {
+    const generation = this.localSaveGeneration;
+    const operation = this.localSaveQueue.then(async () => {
+      if (targetRevision <= this.persistedLocalChangesRevision) return;
+      await this.options.onSaveRequest?.();
+      if (generation !== this.localSaveGeneration) {
+        throw new DOMException(
+          "OnlyOffice document changed while persisting a native save",
+          "AbortError",
+        );
+      }
+      this.persistedLocalChangesRevision = targetRevision;
+    });
+    this.localSaveQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
   private broadcast(...msg: unknown[]) {
     for (const socket of this.sockets) {
       this.sendTo(socket, ...msg);
@@ -2172,17 +2206,68 @@ export class EditorServer {
         send({
           type: "saveLock",
           saveLock: false,
+          syncChangesIndex: this.syncChangesIndex,
         });
         break;
       case "saveChanges":
+        {
+          const savedChangeCount = countSavedChanges(msg.changes);
+          this.changesIndex += savedChangeCount;
+          this.localChangesRevision += savedChangeCount;
+
+          if (msg.endSaveChanges === false) {
+            send({
+              type: "savePartChanges",
+              changesIndex: this.changesIndex,
+              syncChangesIndex: this.syncChangesIndex,
+            });
+            break;
+          }
+
+          const targetRevision = this.localChangesRevision;
+          try {
+            await this.persistLocalChanges(targetRevision);
+          } catch (error) {
+            this.logRaw(
+              "error",
+              "operation",
+              "native toolbar save persistence failed",
+              ["[EditorServer] native toolbar save persistence failed:", error],
+            );
+            break;
+          }
+
+          send({
+            type: "saveChanges",
+            changes: [],
+            changesIndex: this.changesIndex,
+            syncChangesIndex: this.syncChangesIndex,
+            endSaveChanges: true,
+          });
+          send({
+            type: "unSaveLock",
+            index: this.changesIndex,
+            syncChangesIndex: ++this.syncChangesIndex,
+            time: +new Date(),
+          });
+        }
+        break;
+      case "unLockDocument":
+      case "unSaveLock":
+        try {
+          await this.persistLocalChanges(this.localChangesRevision);
+        } catch (error) {
+          this.logRaw(
+            "error",
+            "operation",
+            "native toolbar save retry failed",
+            ["[EditorServer] native toolbar save retry failed:", error],
+          );
+          break;
+        }
         send({
           type: "unSaveLock",
-          index:
-            typeof msg.startSaveChanges === "number"
-              ? msg.startSaveChanges
-              : typeof msg.endSaveChanges === "number"
-                ? msg.endSaveChanges
-                : -1,
+          index: this.changesIndex,
           syncChangesIndex: ++this.syncChangesIndex,
           time: +new Date(),
         });
