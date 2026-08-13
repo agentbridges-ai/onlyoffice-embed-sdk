@@ -181,11 +181,12 @@ document persisted, invokes the browser print flow in that parent surface, and
 returns the same `File`. Native menu output still arrives through `onSaveAs`
 and `onDownload`.
 
-Starting with `0.4.4`, the native ONLYOFFICE toolbar Save action uses the same
-`onSave` persistence callback as `instance.save()`. The editor does not receive
-its successful save acknowledgement until that callback resolves; callback
-failure returns a native save error and keeps the document dirty. Native and
-programmatic saves share the same single-flight guard.
+Starting with `0.4.6`, the native ONLYOFFICE toolbar Save action captures the
+latest `Editor.bin`, converts it to the open file format, and awaits the same
+`onSave` persistence callback as `instance.save()` before acknowledging the
+co-authoring `saveChanges` transaction. Callback failure sends no successful
+save acknowledgement, keeps the document dirty, and may be retried by the
+editor. Native and programmatic saves share the same single-flight guard.
 
 Each active editor needs a different slot origin. A slot can be reused only
 after its previous mount has been destroyed. Hosted subframes and all static
@@ -228,12 +229,12 @@ node -e 'const fs=require("node:fs"),c=require("node:crypto");const b=fs.readFil
 ```
 
 Pin the resulting lowercase 64-character digest in the consuming
-application's release manifest. For SDK `0.4.5`, the expected identity is:
+application's release manifest. For SDK `0.4.6`, the expected identity is:
 
 ```json
 {
-  "packageVersion": "0.4.5",
-  "hostBuildId": "onlyoffice-embed-sdk-hosted-v11",
+  "packageVersion": "0.4.6",
+  "hostBuildId": "onlyoffice-embed-sdk-hosted-v12",
   "assetManifestDigest": "<sha256-of-the-exact-deployed-manifest-bytes>"
 }
 ```
@@ -316,7 +317,7 @@ outside the workspace, and validates TypeScript, Node SSR, Vite browser/SSR,
 and Bun imports/builds.
 
 Release tags use stable versions only: `sdk-v<package-version>`, for example
-`sdk-v0.4.5`. The protected release workflow requires a GitHub-verified signed
+`sdk-v0.4.6`. The protected release workflow requires a GitHub-verified signed
 annotated tag on `main`, approval through the `npm-production` environment,
 and npm trusted publishing. It publishes the exact verified tarball with OIDC
 provenance; direct manual publication is not a supported release path.
